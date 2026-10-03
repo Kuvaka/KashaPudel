@@ -39,7 +39,7 @@ const LEGS = [
 const tmpM = new THREE.Matrix4();
 const fxDir = new THREE.Vector3(), fxPos = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0), FWD_Z = new THREE.Vector3(0, 0, 1);
-const tmpA = new THREE.Vector3(), tmpB = new THREE.Vector3(), tmpC = new THREE.Vector3(), tmpD = new THREE.Vector3();
+const tmpA = new THREE.Vector3(), tmpB = new THREE.Vector3(), tmpC = new THREE.Vector3(), tmpD = new THREE.Vector3(), tmpE = new THREE.Vector3();
 
 function mixProfile(a, b, t) {
   const o = {};
@@ -70,14 +70,25 @@ function blobTexture() {
   return new THREE.CanvasTexture(c);
 }
 
+// Shallow glossy eye: soft warm Phong sheen plus one catchlight computed in view space, so it
+// always sits on the visible upper side of the eye and is hidden by the head like real shading.
+function eyeMaterial() {
+  const m = new THREE.MeshPhongMaterial({ color: 0x24160f, shininess: 60, specular: 0xbfaf9d, emissive: 0x100804 });
+  m.onBeforeCompile = (sh) => {
+    sh.fragmentShader = sh.fragmentShader.replace('#include <dithering_fragment>', `#include <dithering_fragment>
+      float glint = smoothstep(0.993, 0.996, dot(normalize(normal), normalize(vec3(-0.3, 0.45, 0.84))));
+      gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(1.0), glint * 0.95);`);
+  };
+  return m;
+}
+
 let shared = null;
 function sharedMaterials(assets) {
   if (shared) return shared;
   shared = {
     eye: new THREE.MeshBasicMaterial({ map: assets.eyeTex }),
     // Glossy bead eye: a real dark dome, the highlight comes from the light, not painted.
-    eyeGlint: new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95, depthWrite: false }),
-    eyeBall: new THREE.MeshPhongMaterial({ color: 0x2a1408, shininess: 120, specular: 0xffffff, emissive: 0x120804 }),
+    eyeBall: eyeMaterial(),
     dizzy: new THREE.MeshBasicMaterial({ map: assets.dizzyTex }),
     nose: new THREE.MeshPhongMaterial({ color: 0x3a2014, shininess: 60, specular: 0x8a6a5a }),
     shadow: new THREE.MeshBasicMaterial({ map: blobTexture(), transparent: true, depthWrite: false }),
@@ -148,13 +159,9 @@ export class DogVisual {
     // Eyes: glossy beads; the flat disc is only used for the dizzy swirl.
     this.eyes = [-1, 1].map(() => {
       const b = new THREE.Mesh(assets.eyeBall, M.eyeBall), e = new THREE.Mesh(assets.eyeGeo, M.dizzy);
-      const hl = new THREE.Mesh(assets.eyeGeo, M.eyeGlint);
-      // Catchlight fixed on the bead (upper front), ~20% of the eye: reads under any light.
-      hl.position.set(0, 0.42, 0.93); hl.lookAt(0, 0.9, 2.2); hl.scale.setScalar(0.22);
-      b.add(hl); this.head.add(b, e);
-      return { b, e, hl };
+      this.head.add(b, e);
+      return { b, e };
     });
-    this.brows = [-1, 1].map(() => { const m = new THREE.Mesh(assets.ball, this.mat); this.head.add(m); return m; });
     this.nose = new THREE.Mesh(assets.noseGeo, M.nose); this.head.add(this.nose);
     this.ears = [-1, 1].map((side) => {
       const pivot = new THREE.Group(), m = new THREE.Mesh(assets.ear, this.earMat);
@@ -358,30 +365,32 @@ export class DogVisual {
     // Eyes, nose, crown follow the head morph.
     const eyeA = tmpB.copy(a0.eye).lerp(a1.eye, w);
     const eyeR = P.hw * lerp(0.135, 0.12, (st + w) / LAST);
-    const browA = tmpD.copy(a0.brow).lerp(a1.brow, w);
+    const eyeN = tmpD.copy(a0.eyeN).lerp(a1.eyeN, w).normalize();
+    // Blink: close in 45 ms, hold 25 ms, open in 80 ms.
     this.blinkT -= dt;
-    if (this.blinkT < 0) { this.blink = 0.13; this.blinkT = 2 + Math.random() * 4; }
+    if (this.blinkT < 0) { this.blink = 0.15; this.blinkT = 2 + Math.random() * 4; }
     this.blink = Math.max(0, this.blink - dt);
+    const bt = 0.15 - this.blink, shut = this.blink <= 0 ? 0 : bt < 0.045 ? bt / 0.045 : bt < 0.07 ? 1 : 1 - (bt - 0.07) / 0.08;
     const dizzy = !!down && this.daze > 0.3;
     for (let i = 0; i < 2; i++) {
-      const { b, e, hl } = this.eyes[i], side = i ? 1 : -1;
-      // Bead half sunk into the face; a blink squashes it into a dark lid line.
-      tmpC.set(eyeA.x, eyeA.y, eyeA.z * side).normalize();
-      b.position.set(eyeA.x, eyeA.y, eyeA.z * side).addScaledVector(tmpC, eyeR * 0.05);
-      b.quaternion.setFromUnitVectors(FWD_Z, tmpC);
-      b.scale.set(eyeR * 0.95, eyeR * 1.1 * (this.blink > 0 ? 0.15 : 1), eyeR * 0.6);
+      const { b, e } = this.eyes[i], side = i ? 1 : -1;
+      // Shallow dome along the face's smooth normal, sunk a little; a blink brings the top down
+      // like an upper lid (eye-local y stays head-up).
+      tmpC.set(eyeN.x, eyeN.y, eyeN.z * side);
+      tmpA.crossVectors(UP, tmpC).normalize();
+      tmpM.makeBasis(tmpA, tmpE.crossVectors(tmpC, tmpA), tmpC);
+      b.quaternion.setFromRotationMatrix(tmpM);
+      const hy = eyeR * 1.1 * (1 - 0.85 * shut);
+      b.position.set(eyeA.x, eyeA.y, eyeA.z * side).addScaledVector(tmpC, -eyeR * 0.1).addScaledVector(tmpE, hy - eyeR * 1.1);
+      b.scale.set(eyeR * 0.95, hy, eyeR * 0.45);
       b.visible = !dizzy;
       e.visible = dizzy;
-      hl.visible = !dizzy && this.blink <= 0;
       if (dizzy) {
         e.position.copy(b.position).addScaledVector(tmpC, eyeR * 0.6);
         e.quaternion.setFromUnitVectors(FWD_Z, tmpC);
         e.scale.set(eyeR * 1.2, eyeR * 1.2, 1);
         e.rotateZ(t * 9 * side + this.seed);
       }
-      // Fluffy brow tuft over each eye: frames it like the curls in the concept.
-      this.brows[i].position.set(browA.x, browA.y, browA.z * side);
-      this.brows[i].scale.set(P.hw * 0.11, P.hw * 0.08, P.hw * 0.12);
     }
     this.nose.position.copy(a0.nose).lerp(a1.nose, w);
     this.nose.scale.set(P.hw * 0.1, P.hw * 0.08, P.hw * 0.12);
@@ -406,11 +415,12 @@ export class DogVisual {
       const force = -bobVel * 0.9 + this.yawRate * ear.side * 0.25 * Math.min(1, norm) + (d.dashT > 0 ? -2 : 0);
       ear.v += (force - 70 * ear.a - 9 * ear.v) * dt;
       ear.a = clamp(ear.a + ear.v * dt, -0.9, 0.9);
-      ear.pivot.position.set(eAt[0], eAt[1], eAt[2] * ear.side);
+      ear.pivot.position.set(eAt[0] + P.hw * 0.05, eAt[1], eAt[2] * ear.side); // roots a bit forward
       // Floppy ear hanging from the top of the skull side, splayed outwards; springs flap it.
-      ear.pivot.rotation.set(-ear.side * (0.32 + Math.max(0, ear.a) * 0.45), 0, -0.15 + ear.a * 0.6 + (dizzy ? 0.3 : 0));
+      ear.pivot.rotation.set(-ear.side * (0.2 + Math.max(0, ear.a) * 0.45), 0, -0.15 + ear.a * 0.6 + (dizzy ? 0.3 : 0));
       ear.mesh.position.set(0, 0, ear.side * P.hw * 0.06);
-      ear.mesh.scale.set(P.hw * 0.9, P.ed * 1.65, P.hw * 0.75);
+      // Framing the cheeks: tip near the lower cheek; grown-ups don't get longer ears than ~0.8 hw.
+      ear.mesh.scale.set(P.hw * 0.9, Math.min(P.ed * 1.65, P.hw * 0.8), P.hw * 0.75);
     }
 
     // --- Legs ---------------------------------------------------------------------------------
@@ -531,7 +541,7 @@ export class DogVisual {
       fxDir.set(d.vx / vl, 0, d.vy / vl); fxPos.set(x, 0, y);
       if (dashing && !this.wasDash) fx.dashBurst(fxPos, fxDir, s, (P.sh + P.bw * 0.45) * s);
       if (dashing) {
-        this.windAcc = (this.windAcc ?? 0) + dt * 60;
+        this.windAcc = (this.windAcc ?? 0) + dt * 15; // sparse: a few clear streaks, not a blur
         const n = Math.floor(this.windAcc); this.windAcc -= n;
         fx.dashWind(fxPos, fxDir, s, n);
       }

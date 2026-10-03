@@ -34,12 +34,20 @@ function valueNoise(seed) {
 // beyond the fence so no dog ever walks through them.
 function layout(W, H) {
   const pond = { x: W + 230, z: -170, r: 190 };
-  // Decorative path: a wobbly arc through the south-west corner (flat, walkable).
+  // Two soft decorative paths (flat, walkable): an arc through the south-west corner and a
+  // meandering one across the north-east towards the pond.
   const path = (x, z) => {
     const dx = x, dz = z - H, a = Math.atan2(-dz, dx);
-    return Math.abs(Math.hypot(dx, dz) - (620 + 40 * Math.sin(a * 5 + 1))) ;
+    const p1 = Math.abs(Math.hypot(dx, dz) - (620 + 40 * Math.sin(a * 5 + 1)));
+    const u = x / W, p2 = Math.abs(z - H * (0.38 - 0.3 * u) - 45 * Math.sin(u * 9.0)) * 0.9;
+    return Math.min(p1, x > W * 0.45 ? p2 : 1e9);
   };
-  return { pond, path, pathHalf: 20 };
+  // Clearings: lighter, calmer patches of grass of different shapes (flat paint only).
+  const clearings = [];
+  const cr = rng(77);
+  for (let i = 0; i < 7; i++) clearings.push({ x: W * (0.1 + 0.8 * cr()), z: H * (0.1 + 0.8 * cr()),
+    rx: 110 + cr() * 140, rz: 80 + cr() * 110, a: cr() * TAU });
+  return { pond, path, pathHalf: 24, clearings };
 }
 
 // --- Ground ------------------------------------------------------------------------------------
@@ -56,7 +64,13 @@ function groundMaps(W, H, L) {
     data[k] = tone * 255;
     data[k + 1] = Math.min(255, pathD / 60 * 255);
     data[k + 2] = Math.min(255, Math.max(0, pondD + 60) / 120 * 255);
-    data[k + 3] = 255;
+    let cl = 0;
+    for (const c of L.clearings) {
+      const ca = Math.cos(c.a), sa = Math.sin(c.a), dx = x - c.x, dz = z - c.z;
+      const e = Math.hypot((dx * ca + dz * sa) / c.rx, (-dx * sa + dz * ca) / c.rz) + 0.15 * n2(x / 40, z / 40);
+      cl = Math.max(cl, 1 - smooth(0.8, 1.05, e));
+    }
+    data[k + 3] = cl * 255;
   }
   const map = new THREE.DataTexture(data, S, S);
   map.magFilter = map.minFilter = THREE.LinearFilter;
@@ -86,7 +100,8 @@ function groundMaterial(W, H, M) {
     uniforms: {
       uMap: { value: M.map }, uDetail: { value: M.detail }, uX0: { value: M.x0 }, uSpan: { value: M.span },
       uField: { value: new THREE.Vector2(W, H) }, uTime: { value: 0 },
-      cDark: { value: col('#6c9a3c') }, cMid: { value: col('#76a543') }, cLight: { value: col('#84b04c') },
+      cDark: { value: col('#789f48') }, cMid: { value: col('#7fa74c') }, cLight: { value: col('#87ae53') },
+      cClear: { value: col('#90b55c') },
       cPath: { value: col('#dcb98a') }, cPathEdge: { value: col('#b99063') },
       cWater: { value: col('#5fb2d6') }, cWaterLight: { value: col('#93d3ec') }, cShore: { value: col('#4f8c35') },
     },
@@ -101,15 +116,16 @@ function groundMaterial(W, H, M) {
       uniform sampler2D uMap, uDetail;
       uniform float uX0, uSpan, uTime;
       uniform vec2 uField;
-      uniform vec3 cDark, cMid, cLight, cPath, cPathEdge, cWater, cWaterLight, cShore;
+      uniform vec3 cClear, cDark, cMid, cLight, cPath, cPathEdge, cWater, cWaterLight, cShore;
       varying vec2 vW;
       void main() {
         vec4 m = texture2D(uMap, (vW - uX0) / uSpan);
         float t = m.r;
-        // Two crisp tone steps: big painted patches instead of a checker.
-        vec3 c = mix(cDark, cMid, smoothstep(0.40, 0.42, t));
-        c = mix(c, cLight, smoothstep(0.62, 0.64, t));
-        c += (texture2D(uDetail, vW / 150.0).r - 0.5) * 0.12;
+        // Three close tones with wide soft transitions: patches that don't compete with the dogs.
+        vec3 c = mix(cDark, cMid, smoothstep(0.34, 0.48, t));
+        c = mix(c, cLight, smoothstep(0.56, 0.7, t));
+        c = mix(c, cClear, m.a); // clearings
+        c += (texture2D(uDetail, vW / 150.0).r - 0.5) * 0.08 * (1.0 - 0.6 * m.a);
         // Beyond the fence: a touch darker and cooler, so the field reads as the stage.
         vec2 out2 = max(-vW, vW - uField);
         float outside = smoothstep(0.0, 40.0, max(out2.x, out2.y));
@@ -119,11 +135,11 @@ function groundMaterial(W, H, M) {
         c *= mix(0.86, 1.0, smoothstep(0.0, 70.0, min(in2.x, in2.y))) + outside * 0.14 * (1.0 - smoothstep(0.0, 70.0, min(in2.x, in2.y)));
         // Soft cloud shadows drifting over the meadow.
         float cl = texture2D(uMap, (vW + vec2(uTime * 9.0, uTime * 4.0) - uX0) / (uSpan * 1.7) + 0.31).r;
-        c *= 1.0 - 0.1 * smoothstep(0.52, 0.62, cl);
+        c *= 1.0 - 0.04 * smoothstep(0.45, 0.65, cl);
         // Path with a darker rim.
         float p = m.g * 60.0;
-        c = mix(c, cPathEdge, 1.0 - smoothstep(22.0, 24.0, p));
-        c = mix(c, cPath, 1.0 - smoothstep(18.0, 20.0, p));
+        c = mix(c, cPathEdge, (1.0 - smoothstep(24.0, 30.0, p)) * 0.55);
+        c = mix(c, cPath, 1.0 - smoothstep(17.0, 23.0, p));
         // Pond: grass rim, water, light ripples.
         float d = m.b * 120.0 - 60.0;
         c = mix(c, cShore, 1.0 - smoothstep(6.0, 8.0, d));
@@ -238,6 +254,39 @@ function blobGeometry(detail, freq, amp, seed) {
   g.computeVertexNormals();
   return g;
 }
+
+// Cloud cluster for bushes and tree crowns, like the concept: a few big round puffs merged into
+// one geometry, light on top and calm underneath (vertex colours; no outline).
+function cloudGeometry(puffs, seed) {
+  const parts = [];
+  const v = new THREE.Vector3();
+  let y0 = Infinity, y1 = -Infinity;
+  for (const [x, y, z, rr] of puffs) { y0 = Math.min(y0, y - rr); y1 = Math.max(y1, y + rr); }
+  puffs.forEach(([cx, cy, cz, rr], k) => {
+    let g = new THREE.IcosahedronGeometry(1, 2);
+    g.deleteAttribute('normal'); g.deleteAttribute('uv');
+    g = mergeVertices(g);
+    const pos = g.attributes.position, c = new Float32Array(pos.count * 3);
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).normalize();
+      const b = curls(v.x * 1.3 + seed + k * 3.1, v.y * 1.3, v.z * 1.3);
+      const n = v.y;
+      v.multiplyScalar(rr * (1 + 0.05 * (b - 0.5))).add(tp.set(cx, cy, cz));
+      pos.setXYZ(i, v.x, v.y, v.z);
+      const h = (v.y - y0) / (y1 - y0);
+      const sh = 0.74 + 0.3 * smooth(0.1, 0.9, h) + 0.05 * n;
+      c[i * 3] = c[i * 3 + 1] = c[i * 3 + 2] = sh;
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(c, 3));
+    g.computeVertexNormals();
+    parts.push(g);
+  });
+  return mergeGeometries(parts);
+}
+const BUSH_PUFFS = [[0, 0.1, 0, 0.72], [0.62, -0.08, 0.18, 0.52], [-0.6, -0.06, -0.1, 0.56],
+  [0.12, -0.04, 0.6, 0.48], [-0.12, 0, -0.58, 0.5], [0.08, 0.55, 0.04, 0.5]];
+const CROWN_PUFFS = [[0, 0.05, 0, 0.7], [0.1, 0.62, 0.05, 0.52],
+  ...[0, 1, 2, 3, 4].map((i) => { const a = i / 5 * TAU + 0.3; return [Math.cos(a) * 0.62, -0.18 + 0.12 * (i % 2), Math.sin(a) * 0.62, 0.5]; })];
 
 // Mushroom: red cap with white dots on a cream stem. Origin at the stem foot, height ~1.
 function mushroomGeometry() {
@@ -423,19 +472,19 @@ export function buildMeadow(scene, W, H) {
     const [x, z] = edgeSpot(160);
     if (!inPond(x, z, 20) && !onPath(x, z, 14)) addLeaf(x, z, 15 + r() * 10);
   }
-  for (let i = 0; i < 130; i++) {
+  for (let i = 0; i < 90; i++) {
     const [x, z] = edgeSpot(260);
     if (inPond(x, z, 20) || onPath(x, z, 14)) continue;
-    const s = 8 + r() * 14, g = 0.5 + r() * 0.1;
-    stones.push({ x, z, r: s * 1.3, m: place(x, s * 0.2, z, r() * TAU, s * (1 + r() * 0.4), s * 0.6, s), c: new THREE.Color(g, g, g * 0.96) });
+    const s = 6 + r() * 10, g = 0.4 + r() * 0.08; // no outline: darker, warm grey, so they sit in the grass
+    stones.push({ x, z, r: s * 1.3, m: place(x, s * 0.2, z, r() * TAU, s * (1 + r() * 0.4), s * 0.6, s), c: new THREE.Color(g, g * 0.98, g * 0.9) });
   }
   for (let i = 0; i < 14; i++) { // a few pebbles inside the field
     const x = 100 + r() * (W - 200), z = 100 + r() * (H - 200);
     if (onPath(x, z, 14)) continue;
-    const s = 5 + r() * 4, g = 0.52 + r() * 0.08;
-    stones.push({ x, z, r: s, m: place(x, s * 0.2, z, r() * TAU, s * 1.2, s * 0.55, s), c: new THREE.Color(g, g, g * 0.96) });
+    const s = 5 + r() * 4, g = 0.42 + r() * 0.06;
+    stones.push({ x, z, r: s, m: place(x, s * 0.2, z, r() * TAU, s * 1.2, s * 0.55, s), c: new THREE.Color(g, g * 0.98, g * 0.9) });
   }
-  const stoneS = new Scatter(scene, blobGeometry(1, 1.6, 0.25, 4), stoneMat, stones, lineR);
+  const stoneS = new Scatter(scene, blobGeometry(1, 1.6, 0.25, 4), stoneMat, stones);
 
   const mushMat = toonMaterial('#ffffff'); mushMat.vertexColors = true;
   const mush = [];
@@ -448,7 +497,7 @@ export function buildMeadow(scene, W, H) {
       mush.push({ x: px, z: pz, r: s, m: place(px, 0, pz, r() * TAU, s) });
     }
   }
-  const mushS = new Scatter(scene, mushroomGeometry(), mushMat, mush, lineN);
+  const mushS = new Scatter(scene, mushroomGeometry(), mushMat, mush);
 
   // Fence: one merged mesh + its hull.
   const fenceMat = toonMaterial('#b07a45'); fenceMat.vertexColors = true;
@@ -470,35 +519,48 @@ export function buildMeadow(scene, W, H) {
       fn(x, z);
     }
   };
-  ring(45, 130, (x, z) => {
-    const s = 26 + r() * 22;
-    bushes.push({ x, z, r: s * 1.3, m: place(x, s * 0.45, z, r() * TAU, s * 1.25, s * 0.9, s * 1.1), c: new THREE.Color(bushCols[Math.floor(r() * 3)]) });
-    if (r() < 0.55) { // a few blossoms on top
-      const col = new THREE.Color(r() < 0.6 ? '#ffffff' : '#ffb35c'), n = 2 + Math.floor(r() * 4);
-      for (let k = 0; k < n; k++) {
-        const a = r() * TAU, rr = r() * 0.75, px = x + Math.cos(a) * rr * s * 1.15, pz = z + Math.sin(a) * rr * s;
-        flowers.push({ x: px, z: pz, r: 6, m: place(px, s * 0.45 + s * 0.88 * Math.sqrt(1 - rr * rr), pz, r() * TAU, 4.5), c: col });
+  // Bushes in groups of 3-5 with gaps between them, sizes and heights varying.
+  const perim = 2 * (W + H);
+  const along = (u, d) => {
+    u = ((u % perim) + perim) % perim;
+    if (u < W) return [u, -d]; if (u < W + H) return [W + d, u - W];
+    if (u < 2 * W + H) return [2 * W + H - u, H + d]; return [-d, perim - u];
+  };
+  for (let u = 0; u < perim;) {
+    const n = 3 + Math.floor(r() * 3);
+    for (let k = 0; k < n; k++, u += 34 + r() * 18) {
+      const [x, z] = along(u, 40 + r() * 45);
+      if (inPond(x, z, 40)) continue;
+      const s = 24 + r() * 24, sy = s * (0.75 + r() * 0.45);
+      bushes.push({ x, z, r: s * 1.3, m: place(x, sy * 0.55, z, r() * TAU, s * 1.15, sy, s * 1.05), c: new THREE.Color(bushCols[Math.floor(r() * 3)]) });
+      if (r() < 0.5) { // a few blossoms on top
+        const col = new THREE.Color(r() < 0.6 ? '#ffffff' : '#ffb35c'), nb = 2 + Math.floor(r() * 4);
+        for (let q = 0; q < nb; q++) {
+          const a = r() * TAU, rr = r() * 0.7, px = x + Math.cos(a) * rr * s * 1.05, pz = z + Math.sin(a) * rr * s;
+          flowers.push({ x: px, z: pz, r: 6, m: place(px, sy * 0.55 + sy * 0.95 * Math.sqrt(1 - rr * rr), pz, r() * TAU, 4.5), c: col });
+        }
       }
     }
-  });
-  const bushS = new Scatter(scene, blobGeometry(3, 1.7, 0.2, 8), bushMat, bushes, lineR);
+    u += 70 + r() * 90; // gap
+  }
+  const bushS = new Scatter(scene, cloudGeometry(BUSH_PUFFS, 8), bushMat, bushes);
 
   const trees = [], trunks = [], crownCols = ['#4f8c3c', '#478338', '#579442'];
   ring(150, 70, (x, z) => {
     if (z > H) z += 90; // south trees stand further out: they lean into the view
-    const s = 50 + r() * 26, h = s * 1.1;
+    const s = 50 + r() * 26, h = s * (0.8 + r() * 0.7); // crowns at different heights
     trees.push({ x, z, r: s * 1.3, m: place(x, h + s * 0.55, z, r() * TAU, s, s * 0.9, s), c: new THREE.Color(crownCols[Math.floor(r() * 3)]) });
     trunks.push({ x, z, r: s, m: place(x, h * 0.5 + s * 0.2, z, 0, s * 0.18, h + s * 0.4, s * 0.18) });
   });
-  // Far row: bigger, darker and cooler, so the forest recedes.
-  const farCols = ['#3f7436', '#3a6c38', '#457b3b'];
+  // Far row: bigger, lighter and less saturated (aerial haze), so the forest recedes.
+  const farCols = ['#5d8762', '#58805f', '#638c66'];
   ring(330, 60, (x, z) => {
     if (z > H) z += 120;
     const s = 70 + r() * 30, h = s * 1.0;
     trees.push({ x, z, r: s * 1.3, m: place(x, h + s * 0.55, z, r() * TAU, s, s * 0.9, s), c: new THREE.Color(farCols[Math.floor(r() * 3)]) });
     trunks.push({ x, z, r: s, m: place(x, h * 0.5 + s * 0.2, z, 0, s * 0.18, h + s * 0.4, s * 0.18) });
   });
-  const crownS = new Scatter(scene, blobGeometry(3, 1.4, 0.18, 13), bushMat, trees, lineR);
+  const crownS = new Scatter(scene, cloudGeometry(CROWN_PUFFS, 13), bushMat, trees);
   const flowerS = new Scatter(scene, flowerGeometry(), flowerMat, flowers);
   const leafS = new Scatter(scene, leafPlantGeometry(), leafMat, leaves);
 

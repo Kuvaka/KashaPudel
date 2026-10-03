@@ -45,7 +45,7 @@ function unionOf(parts, k) {
 }
 
 // Head, origin at the skull center; +x is where the nose points.
-function headSdf(P) {
+function headSdf(P, brows = true) {
   const h = P.hw;
   return unionOf([
     [[0, 0, 0], [h * 0.46, h * 0.44, h * 0.5]],                              // skull
@@ -54,9 +54,12 @@ function headSdf(P) {
     [[h * 0.14, -h * 0.12, -h * 0.22], [h * 0.26, h * 0.24, h * 0.24]],
     // Muzzle: a real snout block sticking out of the face (a dog, not a rodent), wide moustache
     // puffs on both sides of it and a soft chin.
-    [[h * 0.4 + P.mz * 0.6, -h * 0.13, 0], [P.mz * 0.7 + h * 0.16, h * 0.17, h * 0.17]],
-    [[h * 0.42 + P.mz * 0.4, -h * 0.2, h * 0.1], [P.mz * 0.5 + h * 0.13, h * 0.15, h * 0.14]],
-    [[h * 0.42 + P.mz * 0.4, -h * 0.2, -h * 0.1], [P.mz * 0.5 + h * 0.13, h * 0.15, h * 0.14]],
+    [[h * 0.4 + P.mz * 0.6, -h * 0.13, 0], [P.mz * 0.7 + h * 0.16, h * 0.17, h * 0.21]],
+    [[h * 0.42 + P.mz * 0.4, -h * 0.2, h * 0.14], [P.mz * 0.5 + h * 0.13, h * 0.15, h * 0.165]],
+    [[h * 0.42 + P.mz * 0.4, -h * 0.2, -h * 0.14], [P.mz * 0.5 + h * 0.13, h * 0.15, h * 0.165]],
+    // Soft brow tufts, part of the head: the upper lid line framing each eye.
+    ...(brows ? [[[h * 0.35, h * 0.21, h * 0.2], [h * 0.1, h * 0.05, h * 0.11]],
+      [[h * 0.35, h * 0.21, -h * 0.2], [h * 0.1, h * 0.05, h * 0.11]]] : []),
   ], h * 0.12);
 }
 
@@ -142,7 +145,7 @@ function bakePart(detail, shapeOf, fur, curlFreq) {
   const col = new Float32Array(n * 3), patch = new Float32Array(n);
   for (let i = 0; i < n; i++) {
     const d = dirs[i], f = fur(d, PROFILES[0]);
-    const c = (0.93 + 0.07 * smooth(0.02, 0.45, bumps[i])) * f.shade;
+    const c = (1 - 0.07 * (1 - smooth(0.02, 0.45, bumps[i])) * (f.crease ?? 1)) * f.shade;
     col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = c;
     patch[i] = f.patch ?? 0;
   }
@@ -211,10 +214,10 @@ function earSdf() {
   return unionOf([
     [[0, -0.14, 0], [0.2, 0.2, 0.2 * f]],
     [[0.02, -0.38, 0], [0.25, 0.22, 0.25 * f]],
-    [[-0.02, -0.62, 0], [0.28, 0.22, 0.28 * f]],
-    [[-0.13, -0.84, 0], [0.17, 0.17, 0.17 * f]],
-    [[0.13, -0.86, 0], [0.17, 0.17, 0.17 * f]],
-    [[0, -0.9, 0], [0.18, 0.15, 0.18 * f]],
+    [[-0.02, -0.62, 0], [0.31, 0.22, 0.28 * f]],             // lower third ~12% wider
+    [[-0.15, -0.84, 0], [0.19, 0.17, 0.17 * f]],
+    [[0.15, -0.86, 0], [0.19, 0.17, 0.17 * f]],
+    [[0, -0.9, 0], [0.2, 0.15, 0.18 * f]],
   ], 0.08);
 }
 
@@ -362,6 +365,19 @@ function mouthTexture(open) {
   return t;
 }
 
+function sdfNormal(sdf, p, e = 1e-3) {
+  const q = new THREE.Vector3(), d = (x, y, z) => sdf(q.set(p.x + x, p.y + y, p.z + z));
+  return new THREE.Vector3(d(e, 0, 0) - d(-e, 0, 0), d(0, e, 0) - d(0, -e, 0), d(0, 0, e) - d(0, 0, -e)).normalize();
+}
+
+// Eye axis: halfway between the face normal and the radial direction, tipped up at most ~9°.
+// The eye sits on the upper slope of the cheeks, where the pure normal looks ~45° up at the sky.
+function eyeAxis(sdf, p) {
+  const n = sdfNormal(sdf, p).add(p.clone().normalize()).normalize();
+  n.y = Math.min(n.y, 0.15);
+  return n.normalize();
+}
+
 // Per-profile anchor points used by the rig (root-local unless noted), blended like morphs.
 export function anchorsOf(P) {
   const bodyY = P.sh + P.bw * 0.28;
@@ -377,7 +393,7 @@ export function anchorsOf(P) {
     eye: onHead(EYE_DIR[0], EYE_DIR[1], EYE_DIR[2], 0), // head-local, right eye (z mirrored)
     nose: onHead(1, -0.17, 0, -0.01),
     mouth: onHead(1, -0.36, 0, 0.004),
-    brow: onHead(EYE_DIR[0] * 0.85, EYE_DIR[1] + 0.44, EYE_DIR[2] * 1.1, -0.02),
+    eyeN: eyeAxis(headSdf(P, false), onHead(EYE_DIR[0], EYE_DIR[1], EYE_DIR[2], 0)),
     ear: onHead(-0.05, 0.7, 0.72, -0.03).toArray(), // head-local attach high on the skull side
   };
 }
@@ -392,7 +408,8 @@ export function buildDogAssets() {
     const eye = smooth(0.93, 0.985, Math.max(d.dot(eyeDir), d.x * eyeDir.x + d.y * eyeDir.y - d.z * eyeDir.z));
     const nose = smooth(0.95, 0.99, d.dot(noseDir));
     const patch = smooth(0.42, 0.8, d.x) * smooth(0.12, -0.2, d.y);
-    return { amp: 0.04 * P.hw * (1 - 0.85 * Math.max(eye, nose) - 0.3 * patch), shade: 1, patch };
+    return { amp: 0.04 * P.hw * (1 - 0.85 * Math.max(eye, nose)) * (1 - 0.3 * patch), shade: 1, patch,
+      crease: 1 - 0.85 * Math.max(eye, nose) }; // calm creases around eyes and nose too
   }, 3.2);
   const body = bakePart(16, bodySdf, (d) => ({ amp: 0.04, shade: 1,
     patch: smooth(0.35, 0.8, d.x) * smooth(0.25, -0.25, d.y) }), 2.9);
