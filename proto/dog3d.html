@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Мальтипу 3D — прототип</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #7cbf4a; overflow: hidden; font: 13px/1.3 system-ui, sans-serif; }
+  canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+  #ui { position: fixed; left: 8px; top: 8px; display: flex; flex-direction: column; gap: 6px; max-width: 300px; }
+  #ui .row { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+  #ui button { border: 0; border-radius: 8px; padding: 6px 9px; background: #fffbe9; color: #4a2c1c; font: inherit; cursor: pointer; }
+  #ui button.on { background: #ffcf4a; }
+  #ui input[type=range] { width: 170px; }
+  #stats { background: rgba(0,0,0,.45); color: #fff; padding: 6px 8px; border-radius: 8px; white-space: pre; font: 12px/1.35 ui-monospace, monospace; }
+  #dash { position: fixed; right: 18px; bottom: 18px; width: 72px; height: 72px; border-radius: 50%; border: 0; background: #ffcf4a; font-size: 28px; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "../src/vendor/three/three.module.js", "three/addons/": "../src/vendor/three/addons/" } }
+</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="ui">
+  <div class="row">
+    <span>Рост</span><input id="grow" type="range" min="0" max="460" step="1" value="0"><span id="growV">0</span>
+  </div>
+  <div class="row" id="modes">
+    <button data-mode="manual" class="on">Руль</button>
+    <button data-mode="circle">Круги</button>
+    <button data-mode="zigzag">Зигзаг (занос)</button>
+    <button data-mode="idle">Стоит</button>
+  </div>
+  <div class="row">
+    <button id="dashB">Рывок</button>
+    <button id="stunB">Оглушить</button>
+    <button id="pauseB">Пауза</button>
+    <button id="slowB">×0.25</button>
+  </div>
+  <div class="row" id="cams">
+    <button data-cam="game" class="on">Игра</button>
+    <button data-cam="close">Крупно</button>
+    <button data-cam="side">Сбоку</button>
+  </div>
+  <div class="row">
+    <button id="stressB">9 собак (гонка)</button>
+  </div>
+  <div id="stats"></div>
+</div>
+<button id="dash">💨</button>
+<script type="module" src="dog3d.js"></script>
+</body>
+</html>
