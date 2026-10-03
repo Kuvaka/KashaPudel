@@ -6,10 +6,20 @@ import * as THREE from 'three';
 import { PROFILES } from './dogModel.js';
 import { CONFIG } from '../src/config.js';
 import { stunPhase } from '../src/game.js';
+import { coatMaterial, outlineMaterial, outline } from './toon.js';
 
 const STAGES = CONFIG.stages, LAST = STAGES.length - 1;
-// 3D coat palette per stage (vertex shade multiplies it).
-const COATS = ['#fff4e4', '#f6d6a4', '#d9925a', '#8c5a38', '#d2d5da', '#f2cc86'];
+// Colours sampled from the 2D sprites (assets/dog_stage*.png): coat, light muzzle/chest, ears.
+const PALETTE = [
+  { coat: '#f4dfbd', light: '#fdf6e6', ear: '#e6c393' },
+  { coat: '#f2cd9c', light: '#fdebc8', ear: '#dca66a' },
+  { coat: '#e0904f', light: '#f9c48a', ear: '#c26e38' },
+  { coat: '#9a5d3a', light: '#f1d3b0', ear: '#74422a' },
+  { coat: '#cdc2bb', light: '#f7ecdd', ear: '#b5a69d' },
+  { coat: '#f2c789', light: '#fcebc0', ear: '#dca15e' },
+];
+const COATS = PALETTE.map((p) => p.coat), EARS = PALETTE.map((p) => p.ear), LIGHTS = PALETTE.map((p) => p.light);
+const SOCKS = [false, false, false, true, true, false]; // fully light paws (brown, grey); others half
 
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -92,10 +102,17 @@ function makeCrown(mat) {
 }
 
 export class DogVisual {
+  // Set by the renderer every frame: drawing-buffer size, device px per world unit, DPR.
+  static view = { res: new THREE.Vector2(1, 1), pxPerUnit: 1, dpr: 1 };
+
   constructor(assets, scene, isPlayer) {
     this.assets = assets;
     const M = sharedMaterials(assets);
-    this.mat = new THREE.MeshLambertMaterial({ color: COATS[0], vertexColors: true });
+    this.mat = coatMaterial(COATS[0], LIGHTS[0]);
+    this.earMat = coatMaterial(EARS[0]);
+    this.pawMat = coatMaterial(COATS[0]);
+    this.lineMat = outlineMaterial();
+    this.lineMatR = outlineMaterial(true);
     this.color = new THREE.Color(); this.color2 = new THREE.Color();
 
     // root: physical position and heading (shadow, rings). pose: hop and tumble on top of it.
@@ -119,15 +136,14 @@ export class DogVisual {
     this.body = new THREE.Group(); pose.add(this.body);
     this.bodyMesh = new THREE.Mesh(assets.body, this.mat); this.body.add(this.bodyMesh);
     this.tail = new THREE.Group(); this.body.add(this.tail);
-    this.tailStem = new THREE.Mesh(assets.limb, this.mat); this.tail.add(this.tailStem);
-    this.tailBall = new THREE.Mesh(assets.ball, this.mat); this.tail.add(this.tailBall);
+    this.tailMesh = new THREE.Mesh(assets.tail, this.mat); this.tail.add(this.tailMesh);
 
     this.head = new THREE.Group(); pose.add(this.head);
     this.headMesh = new THREE.Mesh(assets.head, this.mat); this.head.add(this.headMesh);
     this.eyes = [-1, 1].map(() => { const e = new THREE.Mesh(assets.eyeGeo, M.eye); this.head.add(e); return e; });
     this.nose = new THREE.Mesh(assets.noseGeo, M.nose); this.head.add(this.nose);
     this.ears = [-1, 1].map((side) => {
-      const pivot = new THREE.Group(), m = new THREE.Mesh(assets.ear, this.mat);
+      const pivot = new THREE.Group(), m = new THREE.Mesh(assets.ear, this.earMat);
       pivot.add(m); this.head.add(pivot);
       return { side, pivot, mesh: m, a: 0, v: 0 };
     });
@@ -138,11 +154,18 @@ export class DogVisual {
 
     this.legs = LEGS.map((L) => {
       const upper = new THREE.Mesh(assets.limb, this.mat), lower = new THREE.Mesh(assets.limb, this.mat);
-      const knee = new THREE.Mesh(assets.ball, this.mat), paw = new THREE.Mesh(assets.ball, this.mat);
+      const knee = new THREE.Mesh(assets.ball, this.mat), paw = new THREE.Mesh(assets.ball, this.pawMat);
       pose.add(upper, lower, knee, paw);
       return { ...L, upper, lower, knee, paw, foot: new THREE.Vector3(), from: new THREE.Vector3(),
         swing: false, t: 0, quick: null, over: 0 };
     });
+
+    this.mouth = new THREE.Mesh(M.plane, new THREE.MeshBasicMaterial({ map: assets.mouthClosed, transparent: true,
+      depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
+    this.head.add(this.mouth);
+    // Dark outline around every furry part, like the sprites.
+    for (const m of [this.bodyMesh, this.headMesh, this.tailMesh, ...this.ears.map((e) => e.mesh),
+      ...this.legs.flatMap((L) => [L.upper, L.lower, L.knee, L.paw])]) outline(m, this.lineMat, this.lineMatR);
 
     this.yaw = 0; this.yawRate = 0; this.phase = 0; this.speed = 0; this.gait = 0;
     this.blinkT = 2 + Math.random() * 3; this.blink = 0;
@@ -153,7 +176,10 @@ export class DogVisual {
   shoulderOf(a0, a1, w) { return a0.shoulder.map((v, i) => lerp(v, a1.shoulder[i], w)); }
   hipOf(a0, a1, w) { return a0.hip.map((v, i) => lerp(v, a1.hip[i], w)); }
 
-  dispose() { this.root.removeFromParent(); this.mat.dispose(); }
+  dispose() {
+    this.root.removeFromParent();
+    for (const m of [this.mat, this.earMat, this.pawMat, this.lineMat, this.lineMatR, this.mouth.material]) m.dispose();
+  }
 
   // x, y: interpolated game position; d: the game dog.
   update(d, x, y, dt, t) {
@@ -170,8 +196,17 @@ export class DogVisual {
       m.morphTargetInfluences[next] += w;
     }
     // Keep the stage's own coat for most of the interval, then turn into the next one.
-    this.color.set(COATS[st]).lerp(this.color2.set(COATS[next]), smooth((u - 0.7) / 0.3));
-    this.mat.color.copy(this.color);
+    const cu = smooth((u - 0.7) / 0.3);
+    this.mat.color.set(COATS[st]).lerp(this.color2.set(COATS[next]), cu);
+    this.mat.userData.patch.value.set(LIGHTS[st]).lerp(this.color2.set(LIGHTS[next]), cu);
+    this.earMat.color.set(EARS[st]).lerp(this.color2.set(EARS[next]), cu);
+    this.pawMat.color.copy(this.mat.color).lerp(this.mat.userData.patch.value, SOCKS[cu < 0.5 ? st : next] ? 1 : 0.6);
+    // Constant-looking line: ~3% of the dog's on-screen size, in device pixels.
+    const V = DogVisual.view;
+    for (const lm of [this.lineMat, this.lineMatR]) {
+      lm.uniforms.uRes.value.copy(V.res);
+      lm.uniforms.uPx.value = clamp(0.03 * s * V.pxPerUnit, 1.0 * V.dpr, 1.6 * V.dpr);
+    }
 
     // --- Heading: face where the dog wants to go; while sliding, velocity lags behind ------
     const v = Math.hypot(d.vx, d.vy);
@@ -288,13 +323,9 @@ export class DogVisual {
     const tl = [lerp(a0.tail[0], a1.tail[0], w), lerp(a0.tail[1], a1.tail[1], w)];
     this.tail.position.set(tl[0], tl[1], 0);
     const wag = Math.sin(t * (12 + 8 * Math.min(1, norm)) + this.seed) * (0.35 + 0.35 * Math.min(1, norm)) * (down ? 0.3 : 1);
-    this.tail.rotation.set(0, wag, 0.5);
-    // Short fluffy stem curling up from the rump, pom-pom on the end.
-    const tlen = P.bw * 0.38;
-    this.tailStem.position.set(0, tlen / 2, 0);
-    this.tailStem.scale.set(P.bw * 0.2, tlen, P.bw * 0.2);
-    this.tailBall.position.set(0, tlen, 0);
-    this.tailBall.scale.setScalar(P.bw * 0.23);
+    this.tail.rotation.set(wag, 0, 0.12, 'YXZ');
+    // Big plume curling up over the rump, like the sprites.
+    this.tailMesh.scale.setScalar(P.bw * 0.9);
 
     // --- Head ---------------------------------------------------------------------------------
     const hb = tmpA.set(lerp(a0.head.x, a1.head.x, w), lerp(a0.head.y, a1.head.y, w) - (a0.bodyY + (a1.bodyY - a0.bodyY) * w), 0);
@@ -310,7 +341,7 @@ export class DogVisual {
 
     // Eyes, nose, crown follow the head morph.
     const eyeA = tmpB.copy(a0.eye).lerp(a1.eye, w);
-    const eyeR = P.hw * lerp(0.15, 0.1, st / LAST + w / LAST);
+    const eyeR = P.hw * lerp(0.19, 0.155, (st + w) / LAST);
     this.blinkT -= dt;
     if (this.blinkT < 0) { this.blink = 0.13; this.blinkT = 2 + Math.random() * 4; }
     this.blink = Math.max(0, this.blink - dt);
@@ -325,7 +356,15 @@ export class DogVisual {
       if (dizzy) e.rotateZ(t * 9 * side + this.seed);
     }
     this.nose.position.copy(a0.nose).lerp(a1.nose, w);
-    this.nose.scale.set(P.hw * 0.085, P.hw * 0.07, P.hw * 0.09);
+    this.nose.scale.set(P.hw * 0.08, P.hw * 0.065, P.hw * 0.085);
+    // Mouth decal on the chin, facing out of the muzzle; open while running or panting.
+    const mo = tmpB.copy(a0.mouth).lerp(a1.mouth, w);
+    this.mouth.position.copy(mo);
+    this.mouth.quaternion.setFromUnitVectors(FWD_Z, tmpC.set(1, -0.55, 0).normalize());
+    this.mouth.scale.set(P.hw * 0.3, P.hw * 0.225, 1);
+    // Hysteresis, so the mouth doesn't flicker around the speed threshold.
+    this.panting = this.speed > (this.panting ? 0.2 : 0.45) * s;
+    this.mouth.material.map = (this.panting || !!down) && !dizzy ? A.mouthOpen : A.mouthClosed;
     this.crown.visible = !!d.finished;
     this.crown.position.set(-P.hw * 0.05, P.hw * 0.52, 0);
     this.crown.scale.setScalar(P.hw * 0.17);
@@ -340,8 +379,8 @@ export class DogVisual {
       ear.pivot.position.set(eAt[0], eAt[1], eAt[2] * ear.side);
       // Floppy ear hanging from the top of the skull side, splayed outwards; springs flap it.
       ear.pivot.rotation.set(-ear.side * (0.32 + Math.max(0, ear.a) * 0.45), 0, -0.15 + ear.a * 0.6 + (dizzy ? 0.3 : 0));
-      ear.mesh.position.set(0, -P.ed * 0.45, ear.side * P.hw * 0.07);
-      ear.mesh.scale.set(P.hw * 0.21, P.ed * 0.58, P.hw * 0.12);
+      ear.mesh.position.set(0, 0, ear.side * P.hw * 0.06);
+      ear.mesh.scale.set(P.hw * 0.78, P.ed * 1.35, P.hw * 0.7);
     }
 
     // --- Legs ---------------------------------------------------------------------------------

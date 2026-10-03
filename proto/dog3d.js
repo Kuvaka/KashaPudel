@@ -5,6 +5,7 @@ import { Game, stageOf } from '../src/game.js';
 import { Input } from '../src/input.js';
 import { buildDogAssets } from './dogModel.js';
 import { DogVisual } from './dogVisual.js';
+import { buildMeadow, buildFood } from './meadow.js';
 
 const { world: W, dog: D, camera: CAM, shove: SH, food: F } = CONFIG;
 const $ = (id) => document.getElementById(id);
@@ -16,43 +17,15 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.info.autoReset = false;
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color('#7cbf4a');
 scene.add(new THREE.HemisphereLight('#fff6e6', '#7a9a50', 2.3));
 const sun = new THREE.DirectionalLight('#fff0d0', 2.0);
 sun.position.set(-0.5, 1, 0.7);
 scene.add(sun);
 
-// Grass field with soft checker tiles, darker outside the world.
-function grassTexture() {
-  const c = document.createElement('canvas'); c.width = c.height = 256;
-  const x = c.getContext('2d');
-  x.fillStyle = '#86c754'; x.fillRect(0, 0, 256, 256);
-  x.fillStyle = '#7dbd4c'; x.fillRect(0, 0, 128, 128); x.fillRect(128, 128, 128, 128);
-  for (let i = 0; i < 220; i++) {
-    x.fillStyle = Math.random() < 0.5 ? 'rgba(60,120,30,.25)' : 'rgba(190,230,120,.25)';
-    const px = Math.random() * 256, py = Math.random() * 256;
-    x.beginPath(); x.ellipse(px, py, 1.4, 4, Math.random() - 0.5, 0, Math.PI * 2); x.fill();
-  }
-  const t = new THREE.CanvasTexture(c);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(W.w / 160, W.h / 160);
-  t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
-  return t;
-}
-const field = new THREE.Mesh(new THREE.PlaneGeometry(W.w, W.h), new THREE.MeshBasicMaterial({ map: grassTexture() }));
-field.rotation.x = -Math.PI / 2; field.position.set(W.w / 2, 0, W.h / 2);
-scene.add(field);
-const outside = new THREE.Mesh(new THREE.PlaneGeometry(W.w * 4, W.h * 4), new THREE.MeshBasicMaterial({ color: '#5f9a3a' }));
-outside.rotation.x = -Math.PI / 2; outside.position.set(W.w / 2, -0.5, W.h / 2);
-scene.add(outside);
-
-// Food: one instanced mesh, per-instance colour by type, pops in from scale 0.
-const FOOD_COL = { basic: '#d9984e', choco: '#7a4526', bone: '#f6f1e4' };
+// Toon meadow (ground, decor, fence, trees) and 3D food.
+const meadow = buildMeadow(scene, W.w, W.h);
 const MAX_FOOD = F.count + 64;
-const foodMesh = new THREE.InstancedMesh(new THREE.CylinderGeometry(1, 1, 0.45, 14), new THREE.MeshLambertMaterial(), MAX_FOOD);
-foodMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-const foodColor = new THREE.Color();
-for (let i = 0; i < MAX_FOOD; i++) foodMesh.setColorAt(i, foodColor.set('#ffffff'));
-scene.add(foodMesh);
+const food = buildFood(scene, MAX_FOOD);
 const easeOutBack = (x) => 1 + 2.70158 * (x - 1) ** 3 + 1.70158 * (x - 1) ** 2;
 const fm = new THREE.Matrix4(), fq = new THREE.Quaternion(), fp = new THREE.Vector3(), fs = new THREE.Vector3(), FY = new THREE.Vector3(0, 1, 0);
 
@@ -122,6 +95,20 @@ function stepGame(dt) {
   if (!stress) { const g = +$('grow').value; if (game.player.xp !== g) setGrowth(g); }
 }
 
+function syncView() {
+  // Outline width needs the drawing-buffer size and the camera's px per world unit.
+  const V = DogVisual.view;
+  renderer.getDrawingBufferSize(V.res);
+  V.pxPerUnit = V.res.y / (camera.top - camera.bottom);
+  V.dpr = renderer.getPixelRatio();
+  const px = V.dpr * 1.5;
+  meadow.setRes(V.res, px);
+  for (const m of food.lineMats) { m.uniforms.uRes.value.copy(V.res); m.uniforms.uPx.value = px; }
+  const hx = (camera.right - camera.left) / 2, hz = (camera.top - camera.bottom) / 2 / Math.sin(52 * Math.PI / 180);
+  const c = camera.userData.target ?? { x: W.w / 2, z: W.h / 2 };
+  meadow.update(time, c.x, c.z, hx, hz);
+}
+
 function updateCamera(dt) {
   const p = game.player, vw = innerWidth, vh = innerHeight, aspect = vw / vh;
   const v = visuals.get(p);
@@ -138,30 +125,31 @@ function updateCamera(dt) {
   // az = 0 looks "north" (towards -z), like the 2D screen.
   camera.position.set(tx + Math.sin(az) * Math.cos(pitch) * dist, ty + Math.sin(pitch) * dist, tz + Math.cos(az) * Math.cos(pitch) * dist);
   camera.lookAt(tx, ty, tz);
+  camera.userData.target = { x: tx, z: tz };
   const short = camView / 2;
   if (aspect >= 1) { camera.top = short; camera.bottom = -short; camera.left = -short * aspect; camera.right = short * aspect; }
   else { camera.left = -short; camera.right = short; camera.top = short / aspect; camera.bottom = -short / aspect; }
   camera.near = 1; camera.far = 4000;
   camera.updateProjectionMatrix();
+  syncView();
 }
 
 function updateFood(dt) {
-  const list = game.food;
+  food.begin();
+  // Only food near the camera goes to the GPU.
+  const c = camera.userData.target ?? { x: 0, z: 0 }, hx = (camera.right - camera.left) / 2 + 40;
+  const hz = (camera.top - camera.bottom) / 2 / Math.sin(52 * Math.PI / 180) + 40;
   let i = 0;
-  for (const f of list) {
-    if (i >= MAX_FOOD) break;
+  for (const f of game.food) {
     f.pop += dt;
+    if (Math.abs(f.x - c.x) > hx || Math.abs(f.y - c.z) > hz) continue;
+    if (i++ >= MAX_FOOD) break;
     const k = f.pop <= 0 ? 0 : f.pop >= 0.35 ? 1 : easeOutBack(f.pop / 0.35);
     const r = (f.type?.r ?? 8) * Math.max(0, k);
-    fp.set(f.x, r * 0.25, f.y); fq.setFromAxisAngle(FY, f.rot); fs.set(r, r, r);
-    fm.compose(fp, fq, fs);
-    foodMesh.setMatrixAt(i, fm);
-    foodMesh.setColorAt(i, foodColor.set(FOOD_COL[f.type?.id] ?? '#d9984e'));
-    i++;
+    fp.set(f.x, 0, f.y); fq.setFromAxisAngle(FY, f.rot); fs.set(r, r, r);
+    food.add(f.type?.id ?? 'basic', fm.compose(fp, fq, fs));
   }
-  foodMesh.count = i;
-  foodMesh.instanceMatrix.needsUpdate = true;
-  foodMesh.instanceColor.needsUpdate = true;
+  food.end();
 }
 
 const stats = { fps: 0, ms: 0, frames: 0, acc: 0, msAcc: 0 };
@@ -248,9 +236,11 @@ function drawLineup(t, view = 'side') {
   const pitch = view === 'game' ? 52 * Math.PI / 180 : view === 'front' ? 10 * Math.PI / 180 : 6 * Math.PI / 180;
   camera.position.set(cx, 40 + Math.sin(pitch) * 1500, Math.cos(pitch) * 1500);
   camera.lookAt(cx, 40, 0);
+  camera.userData.target = { x: cx, z: 0 };
   camera.left = -w / 2; camera.right = w / 2; camera.top = w / 2 / aspect; camera.bottom = -w / 2 / aspect;
   camera.updateProjectionMatrix();
-  field.visible = outside.visible = foodMesh.visible = false;
+  syncView();
+  meadow.ground.visible = true; food.visible = false;
   renderer.render(scene, camera);
 }
 
