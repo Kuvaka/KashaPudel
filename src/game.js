@@ -37,7 +37,7 @@ function pickFoodType() {
 }
 
 function makeFood(x, y, type = pickFoodType()) {
-  return { x, y, type, rot: rand(0, Math.PI * 2) };
+  return { x, y, type, rot: rand(0, Math.PI * 2), pop: 0 }; // pop: seconds since it appeared (render-only)
 }
 
 function makeDog(name, isPlayer, x, y, skill = 1) {
@@ -80,7 +80,11 @@ export class Game {
       const skill = B.skills?.[i] ?? (B.skillMin + (B.skillMax - B.skillMin) * (i / Math.max(1, B.count - 1)));
       this.dogs.push(makeDog(names[i % names.length], false, ...spot(i + 1), skill));
     }
-    for (let i = 0; i < F.count; i++) this.food.push(makeFood(...this.foodSpot()));
+    for (let i = 0; i < F.count; i++) {
+      const f = makeFood(...this.foodSpot());
+      f.pop = -rand(0, 0.8); // the field fills in with a ripple of little pops
+      this.food.push(f);
+    }
   }
 
   // Random point not too close to any dog (a few tries, then anywhere).

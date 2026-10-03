@@ -88,5 +88,6 @@ export const CONFIG = {
     viewAtBase: 400,    // world units across the shorter screen side at base radius
     zoomExp: 0.45,        // view grows ~ (r / baseRadius) ^ zoomExp: 400 -> ~600 at the finish
     follow: 8,
+    landscapeZoom: 1.35,  // phones held sideways have a short side of ~390 px: zoom in more
   },
 };

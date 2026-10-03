@@ -2,6 +2,8 @@ import { CONFIG } from './config.js';
 import { SPRITE_R } from './art.js';
 
 const { world: W, camera: CAM, dog: D } = CONFIG;
+const POP_SEC = 0.35; // new food grows from nothing with a little overshoot
+const easeOutBack = (x) => 1 + 2.7 * (x - 1) ** 3 + 1.7 * (x - 1) ** 2;
 let visualSeed = 0x91e10da5;
 function visualRandom() {
   visualSeed ^= visualSeed << 13; visualSeed ^= visualSeed >>> 17; visualSeed ^= visualSeed << 5;
@@ -29,7 +31,7 @@ export class Renderer {
 
   targetScale(r) {
     const view = CAM.viewAtBase * Math.pow(r / D.baseRadius, CAM.zoomExp);
-    return Math.min(this.vw, this.vh) / view;
+    return Math.min(this.vw, this.vh) / view * (this.vw > this.vh ? CAM.landscapeZoom : 1);
   }
 
   snapCamera(p) {
@@ -80,9 +82,11 @@ export class Renderer {
     // Food
     const t = game.time;
     for (const f of game.food) {
-      if (!visible(f.x, f.y)) continue;
+      f.pop += dt;
+      if (f.pop <= 0 || !visible(f.x, f.y)) continue;
       const img = this.art.food[f.type.id];
-      const s = f.type.r * 2.6 * (1 + 0.06 * Math.sin(t * 3 + f.rot * 5));
+      const grow = f.pop < POP_SEC ? easeOutBack(f.pop / POP_SEC) : 1;
+      const s = f.type.r * 2.6 * grow * (1 + 0.06 * Math.sin(t * 3 + f.rot * 5));
       const h = s * img.height / img.width;
       ctx.save();
       ctx.translate(f.x, f.y);
