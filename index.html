@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Мальтипу">
+  <meta name="theme-color" content="#86c95a">
+  <title>Мальтипу.io</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <div id="hud" class="hidden">
+    <div id="xp">
+      <div id="stage-row"><span id="stage-name">Щенок</span><span id="race-time">0:00</span></div>
+      <div id="xp-bar"><div id="xp-fill"></div></div>
+    </div>
+    <ol id="board"></ol>
+    <button id="dash" aria-label="Рывок">💨</button>
+    <div id="toast"></div>
+    <div id="countdown"></div>
+  </div>
+
+  <div id="start" class="screen">
+    <div class="panel">
+      <h1>Мальтипу<span>.io</span></h1>
+      <p>Гонка роста! Ешь печенье и вырасти из щенка во взрослую собаку быстрее всех.</p>
+      <input id="name" maxlength="12" placeholder="Имя собачки" autocomplete="off" enterkeyhint="go">
+      <button id="play" class="big">Играть</button>
+      <p class="hint">Палец — джойстик · 💨 — рывок: толкни соперника от печенья<br>ПК: мышь или WASD, пробел — рывок</p>
+    </div>
+  </div>
+
+  <div id="finish" class="screen hidden">
+    <div class="panel">
+      <h2 id="fin-title">Выросла!</h2>
+      <p id="fin-place" class="place"></p>
+      <div id="podium"></div>
+      <p id="fin-stats" class="stats"></p>
+      <button id="again" class="big">Ещё раз</button>
+    </div>
+  </div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

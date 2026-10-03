@@ -1,0 +1,10 @@
+# Publish only the game itself: everything is ignored except the files below.
+/*
+!/.gitignore
+!/index.html
+!/style.css
+!/manifest.webmanifest
+!/sw.js
+!/src/
+!/assets/
+!/icons/
