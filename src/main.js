@@ -3,7 +3,7 @@ import { Game, FINISH_XP } from './game.js';
 import { loadArt } from './art.js';
 import { Renderer, refreshSafeArea } from './render.js';
 import { Input } from './input.js';
-import { unlock, sfx } from './audio.js';
+import { unlock, sfx, isMuted, setMuted } from './audio.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('game');
@@ -112,6 +112,19 @@ $('play').addEventListener('click', begin);
 $('again').addEventListener('click', begin);
 $('name').addEventListener('keydown', (e) => { if (e.key === 'Enter') begin(); });
 
+const muteBtn = $('mute');
+const syncMute = () => { muteBtn.textContent = isMuted() ? '🔇' : '🔊'; };
+muteBtn.addEventListener('click', () => { setMuted(!isMuted()); syncMute(); });
+syncMute();
+
+// In the background iOS throttles timers; on return, don't fast-forward the race and
+// don't keep a stick or dash "held" from before.
+document.addEventListener('visibilitychange', () => {
+  input.reset();
+  acc = 0;
+  last = performance.now();
+});
+
 function onResize() { refreshSafeArea(); renderer.resize(); }
 window.addEventListener('resize', onResize);
 window.addEventListener('orientationchange', () => setTimeout(onResize, 200));
@@ -120,9 +133,16 @@ refreshSafeArea();
 
 // HUD
 const hudStage = $('stage-name'), hudBar = $('xp-fill'), hudBoard = $('board'), hudTime = $('race-time');
-let boardTimer = 0;
+const dashBtn = $('dash');
+let boardTimer = 0, dashWasReady = true;
 function updateHud(dt) {
   const p = game.player;
+  const cd = p.dashCd / CONFIG.dash.cooldownSec;
+  dashBtn.style.setProperty('--cd', cd.toFixed(3));
+  if (cd === 0 && !dashWasReady) {
+    dashBtn.classList.remove('ready'); void dashBtn.offsetWidth; dashBtn.classList.add('ready');
+  }
+  dashWasReady = cd === 0;
   hudStage.textContent = CONFIG.stages[p.stage].name;
   hudBar.style.width = `${Math.min(100, (p.xp / FINISH_XP) * 100).toFixed(1)}%`;
   hudTime.textContent = fmtTime(p.finished || game.time);

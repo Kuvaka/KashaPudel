@@ -1,6 +1,7 @@
 // Touch: floating joystick (anywhere outside the dash button) + hold-to-dash button.
 // Desktop: mouse steers from screen center, or WASD/arrows; Shift/Space dashes.
-const STICK_R = 60; // CSS px
+const STICK_R = 52; // CSS px
+const DEAD_ZONE = 8;
 
 export class Input {
   constructor(el, dashBtn) {
@@ -37,7 +38,14 @@ export class Input {
 
     window.addEventListener('keydown', (e) => this.keys.add(e.code));
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
-    window.addEventListener('blur', () => { this.keys.clear(); this.stick = null; release(); });
+    this.releaseDash = release;
+    window.addEventListener('blur', () => this.reset());
+  }
+
+  // Drop every held control (app switch, blur): nothing should stay "pressed" afterwards.
+  reset() {
+    this.keys.clear(); this.stick = null; this.mouse = null; this.mouseDash = false;
+    this.releaseDash();
   }
 
   // Returns { dirX, dirY, mag, dash } for the player.
@@ -46,7 +54,7 @@ export class Input {
     if (this.stick) {
       const dx = this.stick.x - this.stick.ox, dy = this.stick.y - this.stick.oy;
       const len = Math.hypot(dx, dy);
-      if (len > 6) { x = dx / len; y = dy / len; mag = Math.min(1, len / STICK_R); }
+      if (len > DEAD_ZONE) { x = dx / len; y = dy / len; mag = Math.min(1, len / STICK_R); }
     } else {
       const k = this.keys;
       const kx = (k.has('KeyD') || k.has('ArrowRight')) - (k.has('KeyA') || k.has('ArrowLeft'));

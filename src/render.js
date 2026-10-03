@@ -163,7 +163,7 @@ export class Renderer {
       }
     }
 
-    if (d.dashing && speed > 200 && Math.random() < 0.5) {
+    if (d.dashT > 0 && speed > 200 && Math.random() < 0.5) {
       this.particles.push({ x: x - d.face * r, y: y + r * 0.6, vx: -d.vx * 0.2, vy: -20, life: 0.4, max: 0.4, color: 'rgba(255,255,255,0.8)', size: r * 0.18 });
     }
   }

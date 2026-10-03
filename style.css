@@ -98,6 +98,22 @@ html, body {
   box-shadow: 0 5px 0 var(--ink);
 }
 #dash.active { transform: translateY(4px); box-shadow: 0 1px 0 var(--ink); }
+/* Cooldown: a dark wedge that shrinks clockwise as the dash recharges (--cd 1 -> 0). */
+#dash::after {
+  content: ''; position: absolute; inset: -4px; border-radius: 50%; pointer-events: none;
+  background: conic-gradient(rgba(40, 25, 15, 0.55) calc(var(--cd, 0) * 360deg), transparent 0);
+}
+#dash.ready { animation: ready 0.35s ease-out; }
+@keyframes ready { 50% { transform: scale(1.12); } }
+
+#mute {
+  position: absolute;
+  left: calc(12px + var(--sa-left));
+  top: calc(52px + var(--sa-top));
+  width: 40px; height: 40px; border-radius: 50%;
+  font-size: 20px; pointer-events: auto; touch-action: manipulation;
+  background: rgba(255, 247, 227, 0.85); border: 3px solid var(--ink);
+}
 
 #toast {
   position: absolute; left: 50%; top: calc(64px + var(--sa-top));

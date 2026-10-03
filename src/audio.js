@@ -2,6 +2,14 @@
 // is called from the Start button.
 let ac = null;
 let lastChomp = 0;
+let muted = false;
+try { muted = localStorage.getItem('kf_muted') === '1'; } catch {}
+
+export const isMuted = () => muted;
+export function setMuted(m) {
+  muted = m;
+  try { localStorage.setItem('kf_muted', m ? '1' : '0'); } catch {}
+}
 
 export function unlock() {
   if (!ac) {
@@ -13,7 +21,7 @@ export function unlock() {
 }
 
 function tone(freq, dur, type = 'sine', vol = 0.15, slide = 0, when = 0) {
-  if (!ac || ac.state !== 'running') return;
+  if (muted || !ac || ac.state !== 'running') return;
   const t = ac.currentTime + when;
   const o = ac.createOscillator(), g = ac.createGain();
   o.type = type;

@@ -1,7 +1,8 @@
 import { CONFIG } from './config.js';
 
 // Race: every dog starts as a puppy at the same moment; the first to grow into the last
-// stage wins. Nobody gets eaten or knocked back; dogs only jostle and compete for cookies.
+// stage wins. Nobody gets eaten and growth is never lost: dogs compete for cookies and can
+// shove each other away from them.
 const { world: W, dog: D, stages: STAGES, food: F, bots: B, dash: DASH, race: RACE, shove: SH } = CONFIG;
 const LAST = STAGES.length - 1;
 export const FINISH_XP = STAGES[LAST].xp;
@@ -24,7 +25,8 @@ export function stageProgress(xp) {
 
 function radiusFor(xp) {
   const s = stageOf(xp);
-  return D.baseRadius * Math.pow(D.radiusMul, s) * (1 + D.inStageGrowth * stageProgress(xp) * (s < LAST));
+  if (s === LAST) return STAGES[s].r;
+  return STAGES[s].r + (STAGES[s + 1].r - STAGES[s].r) * D.inStageGrowth * stageProgress(xp);
 }
 
 function pickFoodType() {
@@ -43,8 +45,8 @@ function makeDog(name, isPlayer, x, y, skill = 1) {
   return {
     name, isPlayer, xp: 0, stage: 0, r, drawR: r,
     x, y, px: x, py: y, vx: 0, vy: 0,
-    dirX: 0, dirY: 0, mag: 0, dashing: false,
-    face: x < W.w / 2 ? 1 : -1, pop: 0, stun: 0, shoveCd: 0,
+    dirX: 0, dirY: 0, mag: 0, wantDash: false, dashT: 0, dashCd: 0,
+    face: x < W.w / 2 ? 1 : -1, pop: 0, stun: 0, immune: 0, shoveCd: 0,
     finished: 0, place: 0, eaten: 0,
     // bot brain
     skill, think: rand(0, B.thinkSec), wander: rand(0, Math.PI * 2), target: null,
@@ -63,7 +65,6 @@ export class Game {
     this.countdown = RACE.countdownSec;
     this.places = 0;
     this.food = [];
-    for (let i = 0; i < F.count; i++) this.food.push(makeFood(rand(30, W.w - 30), rand(30, W.h - 30)));
     this.foodDebt = 0;
 
     // Start positions on a ring around the center, player at the bottom.
@@ -79,11 +80,22 @@ export class Game {
       const skill = B.skillMin + (B.skillMax - B.skillMin) * (i / Math.max(1, B.count - 1));
       this.dogs.push(makeDog(names[i % names.length], false, ...spot(i + 1), skill));
     }
+    for (let i = 0; i < F.count; i++) this.food.push(makeFood(...this.foodSpot()));
+  }
+
+  // Random point not too close to any dog (a few tries, then anywhere).
+  foodSpot() {
+    let x, y;
+    for (let k = 0; k < 6; k++) {
+      x = rand(30, W.w - 30); y = rand(30, W.h - 30);
+      if (this.dogs.every((d) => (d.x - x) ** 2 + (d.y - y) ** 2 > F.clearRadius ** 2)) break;
+    }
+    return [x, y];
   }
 
   setPlayerInput(dirX, dirY, mag, dash) {
     const p = this.player;
-    p.dirX = dirX; p.dirY = dirY; p.mag = mag; p.dashing = dash;
+    p.dirX = dirX; p.dirY = dirY; p.mag = mag; p.wantDash = dash;
   }
 
   get racing() { return this.countdown <= 0; }
@@ -106,14 +118,17 @@ export class Game {
   }
 
   move(d, dt) {
-    const stageStart = STAGES[d.stage].xp;
-    const canDash = d.dashing && d.mag > 0.1 && !d.finished && d.xp - stageStart > 0.5;
-    let speed = D.baseSpeed * Math.pow(d.r / D.baseRadius, D.speedExp) * (canDash ? DASH.speedMul : 1);
+    d.dashCd = Math.max(0, d.dashCd - dt);
+    d.dashT = Math.max(0, d.dashT - dt);
+    if (d.wantDash && d.dashCd === 0 && d.mag > 0.1 && !d.stun && !d.finished) {
+      d.dashT = DASH.durationSec; d.dashCd = DASH.cooldownSec;
+    }
+    let speed = D.baseSpeed * Math.pow(d.r / D.baseRadius, D.speedExp) * (d.dashT > 0 ? DASH.speedMul : 1);
     if (!d.isPlayer) speed *= B.speedMul;
     if (d.finished) speed *= 0.45; // winners stroll around
-    if (canDash) d.xp = Math.max(stageStart, d.xp - DASH.xpPerSec * dt);
 
     d.shoveCd = Math.max(0, d.shoveCd - dt);
+    d.immune = Math.max(0, d.immune - dt);
     if (d.stun > 0) {
       // Knocked back: slide out without control.
       d.stun = Math.max(0, d.stun - dt);
@@ -189,14 +204,16 @@ export class Game {
   }
 
   tryShove(att, vic, approach, nx, ny) {
-    if (att.shoveCd > 0 || vic.stun > 0 || att.stun > 0 || att.finished || vic.finished) return;
-    const dash = att.dashing && approach > SH.dashMinSpeed;
+    if (this.time < RACE.shoveGraceSec || att.shoveCd > 0 || vic.stun > 0 || vic.immune > 0 || att.stun > 0 || att.finished || vic.finished) return;
+    const dash = att.dashT > 0 && approach > SH.dashMinSpeed;
     const big = att.r > vic.r * SH.bigRatio && approach > SH.bigMinSpeed;
     if (!dash && !big) return;
     const ma = att.r * att.r, mv = vic.r * vic.r;
     const f = (2 * ma / (ma + mv)) * (dash ? 1 : 0.6); // 1 for equal dogs, up to ~2 for big ones
     vic.vx = nx * SH.power * f; vic.vy = ny * SH.power * f;
     vic.stun = SH.stunSec * Math.min(1.6, f);
+    vic.immune = vic.stun + SH.immuneSec;
+    vic.dashT = 0;
     vic.target = null;
     att.vx *= SH.recoil; att.vy *= SH.recoil;
     att.shoveCd = SH.cooldown;
@@ -209,7 +226,7 @@ export class Game {
     this.foodDebt += F.respawnPerSec * dt;
     while (this.foodDebt >= 1 && this.food.length < F.count) {
       this.foodDebt -= 1;
-      this.food.push(makeFood(rand(30, W.w - 30), rand(30, W.h - 30)));
+      this.food.push(makeFood(...this.foodSpot()));
     }
   }
 
@@ -220,9 +237,10 @@ export class Game {
       d.rivalT -= dt;
       const o = d.rival;
       const dx = o.x - d.x, dy = o.y - d.y, len = Math.hypot(dx, dy) || 1;
-      d.dirX = dx / len; d.dirY = dy / len; d.mag = 1; d.dashing = true;
+      d.dirX = dx / len; d.dirY = dy / len; d.mag = 1;
+      d.wantDash = len < 160; // dash when close enough to connect
       if (d.rivalT > 0 && !o.finished) return;
-      d.rival = null; d.think = 0;
+      d.rival = null; d.rivalT = 0; d.think = 0;
     }
     d.think -= dt;
     if (d.think > 0) return;
@@ -231,7 +249,7 @@ export class Game {
     if (d.finished) {
       d.wander += rand(-0.8, 0.8);
       d.dirX = Math.cos(d.wander); d.dirY = Math.sin(d.wander); d.mag = 1;
-      d.dashing = false;
+      d.wantDash = false;
       return;
     }
 
@@ -247,11 +265,11 @@ export class Game {
     if (Math.random() > d.skill * B.focus) target = null; // distracted puppy moment
     d.target = target;
 
-    // A rival is about to take my cookie: go shove it (costs dash XP, so only sometimes).
-    if (target && d.xp - STAGES[d.stage].xp > 3 && Math.random() < B.aggression * d.skill) {
+    // A rival is about to take my cookie: go shove it (only when the dash is ready).
+    if (target && d.dashCd === 0 && Math.random() < B.aggression * d.skill) {
       const myDist = Math.hypot(target.x - d.x, target.y - d.y);
       for (const o of this.dogs) {
-        if (o === d || o.finished || o.stun > 0) continue;
+        if (o === d || o.finished || o.stun > 0 || o.immune > 0) continue;
         const od = Math.hypot(o.x - d.x, o.y - d.y);
         if (od < 220 && Math.hypot(target.x - o.x, target.y - o.y) < myDist && o.r < d.r * 1.3) {
           d.rival = o; d.rivalT = 0.7;
@@ -273,7 +291,7 @@ export class Game {
     const len = Math.hypot(fx, fy) || 1;
     d.dirX = fx / len; d.dirY = fy / len;
     d.mag = 1;
-    d.dashing = !!target && target.type.xp >= 3 && Math.random() < 0.3 * d.skill;
+    d.wantDash = !!target && target.type.xp >= 3 && Math.random() < 0.3 * d.skill;
   }
 
   // Finished dogs first (by place), then by growth.
