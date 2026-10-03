@@ -76,6 +76,8 @@ function fmtTime(sec) {
 function showFinish() {
   const p = game.player;
   $('fin-title').textContent = p.place === 1 ? 'Победа!' : 'Выросла!';
+  $('gift-message').textContent = CONFIG.gift.message;
+  $('gift-signature').textContent = CONFIG.gift.signature;
   $('fin-place').textContent = `${MEDALS[p.place - 1] || '🏁'} ${p.place}-е место из ${game.dogs.length}`;
   $('fin-stats').innerHTML = `Время: <b>${fmtTime(p.finished)}</b> · Печенья: <b>${p.eaten}</b>`;
   const top = game.leaderboard().filter((d) => d.finished).slice(0, 3);
@@ -96,14 +98,16 @@ function begin() {
   unlock();
   const name = $('name').value.trim().slice(0, 12);
   try { localStorage.setItem('kf_name', name); } catch {}
-  game.start(name || 'Ты');
+  game.start(name || CONFIG.gift.defaultName);
   renderer.snapCamera(game.player);
   show(null);
   showCountdown(String(CONFIG.race.countdownSec));
   sfx.beep(false);
 }
 
-try { $('name').value = localStorage.getItem('kf_name') || ''; } catch {}
+let savedName = null;
+try { savedName = localStorage.getItem('kf_name'); } catch {}
+$('name').value = savedName || CONFIG.gift.defaultName;
 $('play').addEventListener('click', begin);
 $('again').addEventListener('click', begin);
 $('name').addEventListener('keydown', (e) => { if (e.key === 'Enter') begin(); });

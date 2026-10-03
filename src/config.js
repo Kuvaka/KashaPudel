@@ -1,5 +1,11 @@
 // All balance numbers live here so they can be tuned without touching game logic.
 export const CONFIG = {
+  gift: {
+    defaultName: 'Катя',
+    message: 'Поздравляю с тем, что твой мальтипу стал таким большим!',
+    signature: 'С любовью, Паша. С годовщиной!',
+  },
+
   world: { w: 3000, h: 3000 },
   simHz: 60,
   maxDpr: 2,
