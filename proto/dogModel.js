@@ -210,18 +210,59 @@ function earSdf() {
   ], 0.08);
 }
 
-// Plume tail in its own frame: base at the origin, rising along +y, curling over towards +x.
-// A spiral of growing curls around a filled core.
-function tailSdf() {
-  const parts = [[[0.12, 0.62, 0], [0.36, 0.36, 0.3]]];
-  const N = 8;
-  for (let i = 0; i < N; i++) {
-    const t = i / (N - 1);
-    const phi = (254 - 290 * t) * Math.PI / 180, rho = 0.55 - 0.22 * t;
-    const r = 0.2 + 0.17 * Math.sin(Math.PI * Math.min(1, t * 1.15)) - 0.04 * t;
-    parts.push([[0.12 + Math.cos(phi) * rho, 0.62 + Math.sin(phi) * rho, 0], [r, r, r * 0.85]]);
+// Curled plume tail in its own frame: base at the origin, rising along +y, arching forward (+x)
+// over the back and rolling ~1.15 turns inwards, so the curl's hole reads like the "@" in the
+// concept art. A swept tube: thick in the arch, tapering to a rounded tip.
+function bakeTailTube() {
+  const SEG = 72, RAD = 12, CAP = 4;
+  const C = [0.12, 0.55], th0 = Math.atan2(-C[1], -C[0]), turn = 414 * Math.PI / 180;
+  const rho0 = Math.hypot(C[0], C[1]);
+  const curve = (t) => {
+    const th = th0 - turn * t, rho = rho0 * (1 - 0.75 * t);
+    return new THREE.Vector3(C[0] + Math.cos(th) * rho, C[1] + Math.sin(th) * rho, 0.06 * Math.sin(Math.PI * t));
+  };
+  const radius = (t) => t < 0.32 ? 0.17 + 0.15 * smooth(0, 0.32, t) : 0.32 - 0.21 * smooth(0.32, 1, t);
+  const pos = [], col = [], od = [], idx = [];
+  const Z = new THREE.Vector3(0, 0, 1), T = new THREE.Vector3(), N = new THREE.Vector3(), B = new THREE.Vector3();
+  const v = new THREE.Vector3(), nrm = new THREE.Vector3();
+  const ring = (P, r) => {
+    for (let j = 0; j < RAD; j++) {
+      const ph = j / RAD * Math.PI * 2;
+      nrm.copy(N).multiplyScalar(Math.cos(ph)).addScaledVector(B, Math.sin(ph));
+      v.copy(P).addScaledVector(nrm, r);
+      const bmp = curls(v.x * 4 + 7, v.y * 4, v.z * 4);
+      v.copy(P).addScaledVector(nrm, r * (1 + 0.12 * (bmp - 0.5)));
+      pos.push(v.x, v.y, v.z);
+      const sh = 0.84 + 0.16 * smooth(0.02, 0.45, bmp);
+      col.push(sh, sh, sh);
+      od.push(v.x * 1.2 + nrm.x * 0.3, v.y * 1.2 + nrm.y * 0.3, v.z * 1.2 + nrm.z * 0.3); // curl-stroke coords
+    }
+  };
+  const frame = (t) => {
+    T.copy(curve(Math.min(1, t + 1e-3))).sub(curve(Math.max(0, t - 1e-3))).normalize();
+    N.crossVectors(Z, T).normalize(); B.crossVectors(T, N);
+  };
+  for (let i = 0; i <= SEG; i++) { const t = i / SEG; frame(t); ring(curve(t), radius(t)); }
+  // Rounded tip: a few shrinking rings pushed along the tangent.
+  frame(1);
+  const tip = curve(1), rt = radius(1);
+  for (let k = 1; k <= CAP; k++) {
+    const a = k / CAP * Math.PI / 2;
+    ring(tip.clone().addScaledVector(T, Math.sin(a) * rt), Math.max(1e-3, Math.cos(a) * rt));
   }
-  return unionOf(parts, 0.09);
+  const rings = SEG + 1 + CAP;
+  for (let i = 0; i < rings - 1; i++) for (let j = 0; j < RAD; j++) {
+    const a = i * RAD + j, b = i * RAD + (j + 1) % RAD, c = a + RAD, d = b + RAD;
+    idx.push(a, b, c, b, d, c);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.setAttribute('outlineDir', new THREE.Float32BufferAttribute(od, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  g.userData.radialOutline = false; // smooth tube: outline along the normal
+  return g;
 }
 
 // Ball of curls (paws, knees), radius ~1.
@@ -329,7 +370,7 @@ export function buildDogAssets() {
   const limb = bakeLimb();
   const ball = bakeFluffBall(5, 2.2, 0.16);
   const ear = bakeBlob(earSdf(), [0, -0.5, 0], 5, 3.2, 0.08);
-  const tail = bakeBlob(tailSdf(), [0.12, 0.62, 0], 5, 3.4, 0.07);
+  const tail = bakeTailTube();
   for (const g of [limb, ball, ear, tail]) g.setAttribute('furPatch', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count), 1));
   const anchors = PROFILES.map(anchorsOf);
   return {

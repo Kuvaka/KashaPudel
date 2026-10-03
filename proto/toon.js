@@ -113,7 +113,7 @@ export function outlineMaterial(radial = false) {
 
 // Adds an outline twin as a child of `mesh` (same transform, shares morph weights).
 export function outline(mesh, mat, radialMat = mat) {
-  if (mesh.geometry.attributes.outlineDir) mat = radialMat;
+  if (mesh.geometry.attributes.outlineDir && mesh.geometry.userData.radialOutline !== false) mat = radialMat;
   const o = new THREE.Mesh(mesh.geometry, mat);
   if (mesh.morphTargetInfluences) o.morphTargetInfluences = mesh.morphTargetInfluences;
   mesh.add(o);

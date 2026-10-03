@@ -325,9 +325,10 @@ export class DogVisual {
     const tl = [lerp(a0.tail[0], a1.tail[0], w), lerp(a0.tail[1], a1.tail[1], w)];
     this.tail.position.set(tl[0], tl[1], 0);
     const wag = Math.sin(t * (12 + 8 * Math.min(1, norm)) + this.seed) * (0.35 + 0.35 * Math.min(1, norm)) * (down ? 0.3 : 1);
-    this.tail.rotation.set(wag, 0, 0.12, 'YXZ');
+    // Curl plane leans ~37° to the side, so the spiral reads from the high game camera too.
+    this.tail.rotation.set(-0.6 + wag, 0, 0.12, 'YXZ');
     // Big plume curling up over the rump, like the sprites.
-    this.tailMesh.scale.setScalar(P.bw * 0.95);
+    this.tailMesh.scale.setScalar(P.bw * 0.82);
 
     // --- Head ---------------------------------------------------------------------------------
     const hb = tmpA.set(lerp(a0.head.x, a1.head.x, w), lerp(a0.head.y, a1.head.y, w) - (a0.bodyY + (a1.bodyY - a0.bodyY) * w), 0);
