@@ -9,12 +9,12 @@ import { mergeVertices } from 'three/addons/BufferGeometryUtils.js';
 // Per-stage proportions, in units of the collision radius R. Chibi like the 2D sprites:
 // the puppy grows into its legs and muzzle, but the head stays big.
 export const PROFILES = [
-  { hw: 1.2, bl: 1.45, bw: 0.98, sh: 0.56, mz: 0.16, ed: 0.52, leg: 0.21 },
-  { hw: 1.18, bl: 1.49, bw: 0.98, sh: 0.6, mz: 0.18, ed: 0.55, leg: 0.205 },
-  { hw: 1.15, bl: 1.54, bw: 0.97, sh: 0.64, mz: 0.2, ed: 0.58, leg: 0.2 },
-  { hw: 1.12, bl: 1.59, bw: 0.99, sh: 0.68, mz: 0.22, ed: 0.6, leg: 0.195 },
-  { hw: 1.09, bl: 1.64, bw: 1.02, sh: 0.72, mz: 0.23, ed: 0.62, leg: 0.195 },
-  { hw: 1.1, bl: 1.68, bw: 1.07, sh: 0.75, mz: 0.24, ed: 0.64, leg: 0.2 },
+  { hw: 1.3, bl: 1.34, bw: 0.98, sh: 0.56, mz: 0.16, ed: 0.52, leg: 0.21 },
+  { hw: 1.29, bl: 1.37, bw: 0.98, sh: 0.6, mz: 0.18, ed: 0.55, leg: 0.205 },
+  { hw: 1.28, bl: 1.4, bw: 0.97, sh: 0.64, mz: 0.2, ed: 0.58, leg: 0.2 },
+  { hw: 1.27, bl: 1.43, bw: 0.99, sh: 0.68, mz: 0.22, ed: 0.6, leg: 0.195 },
+  { hw: 1.26, bl: 1.46, bw: 1.02, sh: 0.72, mz: 0.23, ed: 0.62, leg: 0.195 },
+  { hw: 1.26, bl: 1.49, bw: 1.07, sh: 0.75, mz: 0.24, ed: 0.64, leg: 0.2 },
 ];
 
 // Where the right eye sits on the head (direction from the skull centre): forward, low and
@@ -117,20 +117,22 @@ function sphereTopology(detail) {
 }
 
 // Bakes one morphing part. shapeOf(P) -> sdf; fur(dir) -> {amp, shade} per direction.
-function bakePart(detail, shapeOf, fur, curlFreq) {
+function bakePart(detail, shapeOf, fur, curlFreq, lockFreq = 0) {
   const geo = sphereTopology(detail);
   const n = geo.attributes.position.count;
   const dirs = [];
   for (let i = 0; i < n; i++) dirs.push(new THREE.Vector3().fromBufferAttribute(geo.attributes.position, i).normalize());
 
   const bumps = dirs.map((d) => curls(d.x * curlFreq + 17, d.y * curlFreq, d.z * curlFreq));
+  // Big locks: a dozen or two soft lobes that show in the silhouette, like the concept's tufts.
+  const locks = dirs.map((d) => lockFreq ? curls(d.x * lockFreq + 41, d.y * lockFreq + 5, d.z * lockFreq) : 1);
   const positions = [], normals = [];
   for (const P of PROFILES) {
     const sdf = shapeOf(P);
     const arr = new Float32Array(n * 3);
     for (let i = 0; i < n; i++) {
       const d = dirs[i], f = fur(d, P);
-      const t = rayToSurface(sdf, d) + f.amp * (bumps[i] - 0.5);
+      const t = rayToSurface(sdf, d) + f.amp * (bumps[i] - 0.5) + (f.lock ?? 0) * (locks[i] - 0.5);
       arr[i * 3] = d.x * t; arr[i * 3 + 1] = d.y * t; arr[i * 3 + 2] = d.z * t;
     }
     const tmp = new THREE.BufferGeometry();
@@ -145,7 +147,9 @@ function bakePart(detail, shapeOf, fur, curlFreq) {
   const col = new Float32Array(n * 3), patch = new Float32Array(n);
   for (let i = 0; i < n; i++) {
     const d = dirs[i], f = fur(d, PROFILES[0]);
-    const c = (1 - 0.07 * (1 - smooth(0.02, 0.45, bumps[i])) * (f.crease ?? 1)) * f.shade;
+    const crease = lockFreq ? 0.06 * (1 - smooth(0.02, 0.4, locks[i])) + 0.03 * (1 - smooth(0.02, 0.45, bumps[i]))
+      : 0.07 * (1 - smooth(0.02, 0.45, bumps[i]));
+    const c = (1 - crease * (f.crease ?? 1)) * f.shade;
     col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = c;
     patch[i] = f.patch ?? 0;
   }
@@ -214,7 +218,7 @@ function earSdf() {
   return unionOf([
     [[0, -0.14, 0], [0.2, 0.2, 0.2 * f]],
     [[0.02, -0.38, 0], [0.25, 0.22, 0.25 * f]],
-    [[-0.02, -0.62, 0], [0.31, 0.22, 0.28 * f]],             // lower third ~12% wider
+    [[-0.02, -0.62, 0], [0.34, 0.23, 0.3 * f]],              // lower third wider: frames the cheeks
     [[-0.15, -0.84, 0], [0.19, 0.17, 0.17 * f]],
     [[0.15, -0.86, 0], [0.19, 0.17, 0.17 * f]],
     [[0, -0.9, 0], [0.2, 0.15, 0.18 * f]],
@@ -226,7 +230,7 @@ function earSdf() {
 // Under a full turn, so the coil never covers itself and the hole stays open like the "@" in the
 // concept art. A swept tube: fullest in the arch, tapering to a capped tip.
 function bakeTailTube() {
-  const SEG = 72, RAD = 12, CAP = 4;
+  const SEG = 72, RAD = 16, CAP = 4;
   const RISE = 0.26, rho0 = 0.3, rho1 = 0.15, turn = 300 * Math.PI / 180, split = 0.2;
   const C = [rho0, RISE]; // curl centre: the riser top sits on its left, heading up
   const curve = (t) => {
@@ -237,17 +241,22 @@ function bakeTailTube() {
     const u = (t - split) / (1 - split), th = Math.PI - turn * u, rho = rho0 + (rho1 - rho0) * smooth(0, 1, u);
     return new THREE.Vector3(C[0] + Math.cos(th) * rho, C[1] + Math.sin(th) * rho, 0.04 * Math.sin(Math.PI * u));
   };
-  const radius = (t) => t < 0.35 ? 0.12 + 0.07 * smooth(0, 0.35, t) : 0.19 - 0.12 * smooth(0.35, 1, t);
+  const radius = (t) => t < 0.35 ? 0.13 + 0.09 * smooth(0, 0.35, t) : 0.22 - 0.13 * smooth(0.35, 1, t);
+  // Plume: big locks on the outside of the curl, a slimmer inner side keeps the hole open.
+  const outward = (P) => P.y < RISE * 0.6 ? new THREE.Vector3(-1, 0, 0) : new THREE.Vector3(P.x - C[0], P.y - C[1], 0).normalize();
+  const lockAt = (t) => Math.pow(Math.abs(Math.sin(Math.PI * t * 7)), 0.6) * (1 - 0.5 * t);
   const pos = [], col = [], od = [], idx = [];
   const Z = new THREE.Vector3(0, 0, 1), T = new THREE.Vector3(), N = new THREE.Vector3(), B = new THREE.Vector3();
   const v = new THREE.Vector3(), nrm = new THREE.Vector3();
-  const ring = (P, r) => {
+  const ring = (P, r, t) => {
+    const out = outward(P), lk = lockAt(t);
     for (let j = 0; j < RAD; j++) {
       const ph = j / RAD * Math.PI * 2;
-      nrm.copy(N).multiplyScalar(Math.cos(ph)).addScaledVector(B, Math.sin(ph));
+      nrm.copy(N).multiplyScalar(Math.cos(ph)).addScaledVector(B, Math.sin(ph) * 1.2); // fuller across the curl plane
       v.copy(P).addScaledVector(nrm, r);
-      const bmp = curls(v.x * 4 + 7, v.y * 4, v.z * 4);
-      v.copy(P).addScaledVector(nrm, r * (1 + 0.12 * (bmp - 0.5)));
+      const bmp = curls(v.x * 4 + 7, v.y * 4, v.z * 4), o = nrm.dot(out) / nrm.length();
+      const side = o > 0 ? 1 + 0.45 * lk * Math.pow(o, 1.5) : 1 + 0.25 * o;
+      v.copy(P).addScaledVector(nrm, r * side * (1 + 0.08 * (bmp - 0.5)));
       pos.push(v.x, v.y, v.z);
       const sh = 0.93 + 0.07 * smooth(0.02, 0.45, bmp);
       col.push(sh, sh, sh);
@@ -258,13 +267,13 @@ function bakeTailTube() {
     T.copy(curve(Math.min(1, t + 1e-3))).sub(curve(Math.max(0, t - 1e-3))).normalize();
     N.crossVectors(Z, T).normalize(); B.crossVectors(T, N);
   };
-  for (let i = 0; i <= SEG; i++) { const t = i / SEG; frame(t); ring(curve(t), radius(t)); }
+  for (let i = 0; i <= SEG; i++) { const t = i / SEG; frame(t); ring(curve(t), radius(t), t); }
   // Rounded tip: a few shrinking rings pushed along the tangent.
   frame(1);
   const tip = curve(1), rt = radius(1);
   for (let k = 1; k <= CAP; k++) {
     const a = k / CAP * Math.PI / 2;
-    ring(tip.clone().addScaledVector(T, Math.sin(a) * rt), Math.max(1e-3, Math.cos(a) * rt));
+    ring(tip.clone().addScaledVector(T, Math.sin(a) * rt), Math.max(1e-3, Math.cos(a) * rt), 1);
   }
   const rings = SEG + 1 + CAP;
   for (let i = 0; i < rings - 1; i++) for (let j = 0; j < RAD; j++) {
@@ -353,9 +362,8 @@ function mouthTexture(open) {
     x.fillStyle = '#5a2418';
     x.beginPath(); x.moveTo(30, 26); x.quadraticCurveTo(64, 34, 98, 26); x.quadraticCurveTo(92, 84, 64, 86);
     x.quadraticCurveTo(36, 84, 30, 26); x.fill();
-    x.fillStyle = '#f2788a';
-    x.beginPath(); x.ellipse(64, 70, 22, 16, 0, 0, Math.PI * 2); x.fill();
-    x.strokeStyle = '#c8506a'; x.lineWidth = 3; x.beginPath(); x.moveTo(64, 60); x.lineTo(64, 78); x.stroke();
+    x.fillStyle = '#b8505e'; // back of the mouth; the tongue itself is a small 3D mesh
+    x.beginPath(); x.ellipse(64, 66, 20, 13, 0, 0, Math.PI * 2); x.fill();
   }
   x.strokeStyle = '#4a2a18'; x.lineWidth = 7;
   x.beginPath(); x.moveTo(64, 8); x.lineTo(64, 24);
@@ -381,7 +389,7 @@ function eyeAxis(sdf, p) {
 // Per-profile anchor points used by the rig (root-local unless noted), blended like morphs.
 export function anchorsOf(P) {
   const bodyY = P.sh + P.bw * 0.28;
-  const head = new THREE.Vector3(P.bl * 0.5 + P.hw * 0.04, bodyY + P.bw * 0.4 + P.hw * 0.14, 0);
+  const head = new THREE.Vector3(P.bl * 0.5, bodyY + P.bw * 0.4 + P.hw * 0.14, 0);
   const sdf = headSdf(P), dir = new THREE.Vector3();
   const onHead = (x, y, z, out = 0) => { dir.set(x, y, z).normalize(); return dir.clone().multiplyScalar(rayToSurface(sdf, dir) + out); };
   return {
@@ -408,11 +416,12 @@ export function buildDogAssets() {
     const eye = smooth(0.93, 0.985, Math.max(d.dot(eyeDir), d.x * eyeDir.x + d.y * eyeDir.y - d.z * eyeDir.z));
     const nose = smooth(0.95, 0.99, d.dot(noseDir));
     const patch = smooth(0.42, 0.8, d.x) * smooth(0.12, -0.2, d.y);
-    return { amp: 0.04 * P.hw * (1 - 0.85 * Math.max(eye, nose)) * (1 - 0.3 * patch), shade: 1, patch,
-      crease: 1 - 0.85 * Math.max(eye, nose) }; // calm creases around eyes and nose too
-  }, 3.2);
-  const body = bakePart(16, bodySdf, (d) => ({ amp: 0.04, shade: 1,
-    patch: smooth(0.35, 0.8, d.x) * smooth(0.25, -0.25, d.y) }), 2.9);
+    const calm = 1 - 0.9 * Math.max(eye, nose);
+    return { amp: 0.015 * P.hw * calm, lock: 0.045 * P.hw * calm * (1 - 0.5 * patch), shade: 1, patch,
+      crease: calm }; // calm creases around eyes and nose too
+  }, 3.2, 1.05);
+  const body = bakePart(16, bodySdf, (d) => ({ amp: 0.015, lock: 0.055, shade: 1,
+    patch: smooth(0.35, 0.8, d.x) * smooth(0.25, -0.25, d.y) }), 2.9, 1.25);
   const limb = bakeLimb();
   const ball = bakeFluffBall(5, 2.2, 0.16);
   const ear = bakeBlob(earSdf(), [0, -0.5, 0], 5, 3.2, 0.08);

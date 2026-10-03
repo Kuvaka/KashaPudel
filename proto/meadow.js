@@ -337,18 +337,83 @@ function fenceGeometry(W, H) {
 }
 
 // 3D food. Cookie: rounded disc with chocolate chips in its geometry. Bone: shaft + four knobs.
-function cookieGeometry() {
-  const pts = [[0, -0.2], [0.9, -0.2], [1, -0.1], [1, 0.06], [0.9, 0.18], [0.5, 0.24], [0, 0.25]].map(([x, y]) => new THREE.Vector2(x, y));
-  const disc = strip(colored(new THREE.LatheGeometry(pts, 14), 1, 1, 1));
-  const parts = [disc], r = rng(11);
-  for (let i = 0; i < 5; i++) {
-    const a = i / 5 * TAU + r() * 0.6, d = i === 4 ? 0 : 0.55;
-    const chip = new THREE.SphereGeometry(0.17, 5, 3); chip.scale(1, 0.55, 1);
-    chip.translate(i === 4 ? 0.05 : Math.cos(a) * d, 0.24, i === 4 ? -0.08 : Math.sin(a) * d);
-    parts.push(strip(colored(chip, 0.32, 0.18, 0.12)));
-  }
-  const g = mergeGeometries(parts); g.translate(0, 0.2, 0);
+// --- Cookies: a few shapes, each tinted per instance -----------------------------------------
+// Vertex attribute `part`: 0 keeps the vertex colour (sprinkles), 1 is dough (instanceColor),
+// 2 is the topping (instanced `deco` colour: chips, icing, cream).
+function piece(g, part, col = [1, 1, 1]) {
+  g = strip(colored(g, ...col));
+  g.setAttribute('part', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count).fill(part), 1));
   return g;
+}
+const v2 = (pts) => pts.map(([x, y]) => new THREE.Vector2(x, y));
+const DISC = v2([[0, -0.2], [0.9, -0.2], [1, -0.1], [1, 0.06], [0.9, 0.18], [0.5, 0.24], [0, 0.25]]);
+function finish(parts, lift) { const g = mergeGeometries(parts); g.translate(0, lift, 0); return g; }
+
+function roundCookie() { // chocolate chip
+  const parts = [piece(new THREE.LatheGeometry(DISC, 14), 1)], r = rng(11);
+  for (let i = 0; i < 6; i++) {
+    const a = i / 5 * TAU + r() * 0.6, d = i === 5 ? 0.12 : 0.58;
+    const chip = new THREE.SphereGeometry(0.16, 5, 3); chip.scale(1, 0.55, 1);
+    chip.translate(Math.cos(a) * d, 0.24 - (i === 5 ? 0 : 0.03), Math.sin(a) * d);
+    parts.push(piece(chip, 2));
+  }
+  return finish(parts, 0.2);
+}
+const SPRINKLES = [[1, 0.55, 0.7], [0.45, 0.75, 1], [1, 0.88, 0.35], [0.6, 0.9, 0.55], [1, 1, 1]];
+function icedCookie() { // sugar cookie: icing cap and sprinkles
+  const parts = [piece(new THREE.LatheGeometry(v2([[0, -0.18], [0.92, -0.18], [1, -0.08], [1, 0.05], [0.92, 0.14], [0, 0.17]]), 14), 1),
+    piece(new THREE.LatheGeometry(v2([[0.8, 0.11], [0.84, 0.15], [0.8, 0.21], [0.62, 0.26], [0, 0.27]]), 14), 2)];
+  const r = rng(23);
+  for (let i = 0; i < 11; i++) {
+    const a = r() * TAU, d = Math.sqrt(r()) * 0.62;
+    const s = new THREE.CylinderGeometry(0.04, 0.04, 0.22, 4);
+    s.rotateZ(Math.PI / 2).rotateY(r() * TAU).translate(Math.cos(a) * d, 0.28, Math.sin(a) * d);
+    parts.push(piece(s, 0, SPRINKLES[i % SPRINKLES.length]));
+  }
+  return finish(parts, 0.18);
+}
+// Flat shape extruded upwards with a soft bevel (shape y becomes world -z).
+function slab(shape, depth, bevel) {
+  const g = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 2, curveSegments: 8 });
+  return g.rotateX(-Math.PI / 2);
+}
+function heartShape(k) {
+  const s = new THREE.Shape(), p = (x, y) => [x * k, (y - 0.1) * k];
+  s.moveTo(...p(0, -0.95));
+  s.bezierCurveTo(...p(-0.35, -0.6), ...p(-1.05, -0.2), ...p(-0.95, 0.35));
+  s.bezierCurveTo(...p(-0.85, 0.9), ...p(-0.2, 0.95), ...p(0, 0.5));
+  s.bezierCurveTo(...p(0.2, 0.95), ...p(0.85, 0.9), ...p(0.95, 0.35));
+  s.bezierCurveTo(...p(1.05, -0.2), ...p(0.35, -0.6), ...p(0, -0.95));
+  return s;
+}
+function heartCookie() { // with an icing heart on top
+  const icing = slab(heartShape(0.72), 0.02, 0.05); icing.translate(0, 0.3, 0);
+  return finish([piece(slab(heartShape(1), 0.22, 0.09), 1), piece(icing, 2)], 0.09);
+}
+function starCookie() { // rounded star with sugar pearls
+  const s = new THREE.Shape(), n = 5, ro = 1.08, ri = 0.45;
+  for (let i = 0; i < n; i++) {
+    const a = i / n * TAU + Math.PI / 2, b = a + Math.PI / n, c = a - 0.12, d = a + 0.12;
+    const P = (r, t) => [Math.cos(t) * r, Math.sin(t) * r];
+    if (i === 0) s.moveTo(...P(ro * 0.9, c));
+    s.quadraticCurveTo(...P(ro * 1.08, a), ...P(ro * 0.9, d));
+    s.quadraticCurveTo(...P(ri * 0.92, b), ...P(ro * 0.9, b + Math.PI / n - 0.12));
+  }
+  const parts = [piece(slab(s, 0.2, 0.08), 1)];
+  for (let i = 0; i <= n; i++) {
+    const a = i / n * TAU + Math.PI / 2, d = i === n ? 0 : 0.6;
+    const pearl = new THREE.SphereGeometry(i === n ? 0.17 : 0.09, 6, 4);
+    pearl.translate(Math.cos(a) * d, 0.29, -Math.sin(a) * d);
+    parts.push(piece(pearl, 2));
+  }
+  return finish(parts, 0.08);
+}
+function sandwichCookie() { // two thin discs with a cream filling
+  const half = v2([[0, -0.1], [0.92, -0.1], [1, -0.04], [1, 0.04], [0.92, 0.1], [0, 0.11]]);
+  const lo = new THREE.LatheGeometry(half, 14), hi = new THREE.LatheGeometry(half, 14);
+  lo.translate(0, 0, 0); hi.translate(0, 0.3, 0);
+  const cream = new THREE.CylinderGeometry(0.9, 0.9, 0.16, 14, 1, true); cream.translate(0, 0.15, 0);
+  return finish([piece(lo, 1), piece(hi, 1), piece(cream, 2)], 0.1);
 }
 function boneGeometry() {
   const parts = [strip(colored(new THREE.CylinderGeometry(0.22, 0.22, 1.3, 10).rotateZ(Math.PI / 2), 1, 1, 1))];
@@ -610,10 +675,32 @@ export function buildMeadow(scene, W, H) {
 }
 
 // --- Food --------------------------------------------------------------------------------------
+// Looks per food type: shape, dough and topping colours. Choco stays dark (it is worth more).
+const FOOD_LOOKS = {
+  basic: [
+    ['round', '#e6a95e', '#52301e'], ['round', '#efc27f', '#7a4526'],
+    ['iced', '#efc27f', '#ffb3c6'], ['iced', '#e6a95e', '#fff4e6'],
+    ['heart', '#e9b067', '#ff8fa8'], ['heart', '#efc27f', '#fff4e6'],
+    ['star', '#f0c682', '#ffe07a'], ['star', '#c98445', '#fff8ee'],
+    ['sandwich', '#e6a95e', '#fff3dd'], ['sandwich', '#efc27f', '#ffc2d1'],
+  ],
+  choco: [['round', '#7b4528', '#fff1dc'], ['sandwich', '#5a3322', '#fff7ea'], ['heart', '#7b4528', '#ff9fb5'], ['star', '#6b3b22', '#fff1dc']],
+};
+for (const k in FOOD_LOOKS) FOOD_LOOKS[k] = FOOD_LOOKS[k].map(([shape, dough, deco]) => ({ shape, dough: new THREE.Color(dough), deco: new THREE.Color(deco) }));
+const SIZE = { basic: [0.9, 1.08], choco: [0.95, 1.1], bone: [1, 1] }; // choco always reads bigger than basic
+const frac = (x) => x - Math.floor(x);
+
 export function buildFood(scene, max) {
   const lineN = outlineMaterial(false);
-  const mk = (geo, color) => {
-    const mat = toonMaterial(color); mat.vertexColors = true;
+  const foodMat = toonMaterial('#ffffff'); foodMat.vertexColors = true;
+  foodMat.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float part;\nattribute vec3 deco;')
+      .replace('#include <color_vertex>', '#ifdef USE_COLOR_ALPHA\nvColor = vec4(1.0);\n#endif\n' +
+        'vColor.rgb = color.rgb * (part < 0.5 ? vec3(1.0) : part < 1.5 ? instanceColor : deco);');
+  };
+  foodMat.customProgramCacheKey = () => 'food';
+  const mk = (geo, mat) => {
     const mesh = new THREE.InstancedMesh(geo, mat, max);
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(max * 3).fill(1), 3);
@@ -623,24 +710,38 @@ export function buildFood(scene, max) {
     scene.add(mesh, line);
     return { mesh, line, n: 0 };
   };
-  const cookies = mk(cookieGeometry(), '#ffffff'), bones = mk(boneGeometry(), '#f7f0e0');
-  const COL = { basic: new THREE.Color('#e6a95e'), choco: new THREE.Color('#9a5a34') };
+  const shapes = {};
+  for (const [k, geo] of Object.entries({ round: roundCookie(), iced: icedCookie(), heart: heartCookie(), star: starCookie(), sandwich: sandwichCookie() })) {
+    geo.setAttribute('deco', new THREE.InstancedBufferAttribute(new Float32Array(max * 3), 3).setUsage(THREE.DynamicDrawUsage));
+    shapes[k] = mk(geo, foodMat);
+  }
+  const boneMat = toonMaterial('#f7f0e0'); boneMat.vertexColors = true;
+  const bones = mk(boneGeometry(), boneMat), all = [...Object.values(shapes), bones];
+  // Variant and size come from the food's random spin angle: stable for its whole life.
+  const look = (type, rot) => { const L = FOOD_LOOKS[type] ?? FOOD_LOOKS.basic; return L[Math.floor(frac(Math.sin(rot * 91.17) * 43758.55) * L.length)]; };
   return {
     lineMats: [lineN],
-    begin() { cookies.n = bones.n = 0; },
-    add(type, m) {
-      const b = type === 'bone' ? bones : cookies;
+    size(type, rot) { const [a, b] = SIZE[type] ?? SIZE.basic; return a + (b - a) * frac(Math.sin(rot * 57.31) * 24634.63); },
+    begin() { for (const b of all) b.n = 0; },
+    add(type, rot, m) {
+      if (type === 'bone') { bones.mesh.setMatrixAt(bones.n++, m); return; }
+      const L = look(type, rot), b = shapes[L.shape];
       b.mesh.setMatrixAt(b.n, m);
-      if (b === cookies) b.mesh.setColorAt(b.n, COL[type] ?? COL.basic);
+      b.mesh.setColorAt(b.n, L.dough);
+      L.deco.toArray(b.mesh.geometry.attributes.deco.array, b.n * 3);
       b.n++;
     },
     end() {
-      for (const b of [cookies, bones]) {
+      for (const b of all) {
         b.mesh.count = b.line.count = b.n;
+        b.mesh.visible = b.line.visible = this.shown && b.n > 0; // empty instanced meshes still cost a draw call
         b.mesh.instanceMatrix.needsUpdate = true;
         b.mesh.instanceColor.needsUpdate = true;
+        const d = b.mesh.geometry.attributes.deco;
+        if (d) d.needsUpdate = true;
       }
     },
-    set visible(v) { for (const b of [cookies, bones]) b.mesh.visible = b.line.visible = v; },
+    shown: true,
+    set visible(v) { this.shown = v; for (const b of all) b.mesh.visible = b.line.visible = v; },
   };
 }

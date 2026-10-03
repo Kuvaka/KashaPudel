@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { PROFILES } from './dogModel.js';
 import { CONFIG } from '../src/config.js';
 import { stunPhase } from '../src/game.js';
-import { coatMaterial, outlineMaterial, outline } from './toon.js';
+import { coatMaterial, outlineMaterial, outline, toonMaterial } from './toon.js';
 
 const STAGES = CONFIG.stages, LAST = STAGES.length - 1;
 // Colours sampled from the 2D sprites (assets/dog_stage*.png): coat, light muzzle/chest, ears.
@@ -75,7 +75,18 @@ function blobTexture() {
 function eyeMaterial() {
   const m = new THREE.MeshPhongMaterial({ color: 0x24160f, shininess: 60, specular: 0xbfaf9d, emissive: 0x100804 });
   m.onBeforeCompile = (sh) => {
-    sh.fragmentShader = sh.fragmentShader.replace('#include <dithering_fragment>', `#include <dithering_fragment>
+    // Warm brown iris around a dark pupil, in the eye's own frame (+z looks out), so it turns
+    // with the head; the catchlight stays in view space.
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vEye;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvEye = position;');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vEye;')
+      .replace('#include <color_fragment>', `#include <color_fragment>
+      float ir = length(vEye.xy) * step(0.0, vEye.z) + step(vEye.z, 0.0);
+      vec3 iris = mix(vec3(0.147, 0.05, 0.016), vec3(0.041, 0.017, 0.01), smoothstep(0.55, 0.85, ir));
+      diffuseColor.rgb = mix(vec3(0.011, 0.005, 0.0037), iris, smoothstep(0.4, 0.46, ir));`)
+      .replace('#include <dithering_fragment>', `#include <dithering_fragment>
       float glint = smoothstep(0.993, 0.996, dot(normalize(normal), normalize(vec3(-0.3, 0.45, 0.84))));
       gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(1.0), glint * 0.95);`);
   };
@@ -91,6 +102,8 @@ function sharedMaterials(assets) {
     eyeBall: eyeMaterial(),
     dizzy: new THREE.MeshBasicMaterial({ map: assets.dizzyTex }),
     nose: new THREE.MeshPhongMaterial({ color: 0x3a2014, shininess: 60, specular: 0x8a6a5a }),
+    tongue: toonMaterial('#e98796'),
+    tongueGeo: new THREE.SphereGeometry(1, 12, 8),
     shadow: new THREE.MeshBasicMaterial({ map: blobTexture(), transparent: true, depthWrite: false }),
     swirl: new THREE.SpriteMaterial({ map: swirlTexture(), depthTest: false }),
     playerRing: new THREE.MeshBasicMaterial({ color: 0xffe45c, transparent: true, opacity: 0.9, depthWrite: false }),
@@ -184,6 +197,7 @@ export class DogVisual {
     this.mouth = new THREE.Mesh(M.plane, new THREE.MeshBasicMaterial({ map: assets.mouthClosed, transparent: true,
       depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
     this.head.add(this.mouth);
+    this.tongue = new THREE.Mesh(M.tongueGeo, M.tongue); this.head.add(this.tongue);
     // Dark outline around every furry part, like the sprites.
     for (const m of [this.bodyMesh, this.headMesh, this.tailMesh, ...this.ears.map((e) => e.mesh),
       ...this.legs.flatMap((L) => [L.upper, L.lower, L.knee, L.paw])]) outline(m, this.lineMat, this.lineMatR);
@@ -360,6 +374,7 @@ export class DogVisual {
       hPitch += Math.sin(t * 0.9 + this.seed) * 0.05;
     }
     if (down && down.phase === 'sit') { hYaw = Math.sin(t * 4) * 0.3 * this.daze; hRoll = Math.cos(t * 4) * 0.22 * this.daze; hPitch = -0.15; }
+    if (!down) hPitch += 0.1; // chin up a little, looking up and ahead like the concept
     this.head.rotation.set(hRoll, hYaw, hPitch, 'YXZ');
 
     // Eyes, nose, crown follow the head morph.
@@ -398,12 +413,21 @@ export class DogVisual {
     const mo = tmpB.copy(a0.mouth).lerp(a1.mouth, w);
     this.mouth.position.copy(mo); this.mouth.position.y += P.hw * 0.05;
     this.mouth.quaternion.setFromUnitVectors(FWD_Z, tmpC.set(1, 0.15, 0).normalize()); // faces the high camera too
-    this.mouth.scale.set(P.hw * 0.36, P.hw * 0.27, 1);
+    this.mouth.scale.set(P.hw * 0.43, P.hw * 0.3, 1);
     // Hysteresis, so the mouth doesn't flicker around the speed threshold.
     this.panting = this.speed > (this.panting ? 0.2 : 0.45) * s;
     this.still = this.panting ? 0 : (this.still ?? 0) + dt;
     // Happy open mouth like the concept art; a calm smile only after a while standing still.
-    this.mouth.material.map = (this.panting || !!down || this.still < 4) && !dizzy ? A.mouthOpen : A.mouthClosed;
+    const open = (this.panting || !!down || this.still < 4) && !dizzy;
+    this.mouth.material.map = open ? A.mouthOpen : A.mouthClosed;
+    // Little 3D tongue out of the open mouth: reads as a pink spot from the game camera too.
+    this.tongue.visible = open;
+    if (open) {
+      const pant = this.panting ? Math.sin(t * 14 + this.seed) * 0.08 : 0;
+      this.tongue.position.copy(mo).add(tmpC.set(P.hw * 0.035, -P.hw * 0.035, 0));
+      this.tongue.rotation.set(0, 0, -0.75 + pant);
+      this.tongue.scale.set(P.hw * 0.08, P.hw * 0.012, P.hw * 0.075);
+    }
     this.crown.visible = !!d.finished;
     this.crown.position.set(-P.hw * 0.05, P.hw * 0.52, 0);
     this.crown.scale.setScalar(P.hw * 0.17);
@@ -513,10 +537,10 @@ export class DogVisual {
       const cosA = clamp(dist / (2 * sg), -1, 1), sinA = Math.sqrt(1 - cosA * cosA);
       const knee = joint.clone().addScaledVector(dir, sg * cosA).addScaledVector(pole, sg * sinA);
 
-      placeSegment(L.upper, joint, knee, P.leg * 1.4);
-      placeSegment(L.lower, knee, footLocal, P.leg * 1.12);
-      L.knee.position.copy(knee); L.knee.scale.setScalar(P.leg * 1.15); // covers the joint: no seam
-      L.paw.position.copy(footLocal); L.paw.scale.set(pawR * 1.25, pawR, pawR * 1.05);
+      placeSegment(L.upper, joint, knee, P.leg * 1.48);
+      placeSegment(L.lower, knee, footLocal, P.leg * 1.19);
+      L.knee.position.copy(knee); L.knee.scale.setScalar(P.leg * 1.22); // covers the joint: no seam
+      L.paw.position.copy(footLocal); L.paw.scale.set(pawR * 1.42, pawR, pawR * 1.19); // wide mitts, same contact height
     }
 
     // --- Ground decals and effects -------------------------------------------------------------

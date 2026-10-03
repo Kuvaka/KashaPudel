@@ -147,9 +147,9 @@ function updateFood(dt) {
     if (Math.abs(f.x - c.x) > hx || Math.abs(f.y - c.z) > hz) continue;
     if (i++ >= MAX_FOOD) break;
     const k = f.pop <= 0 ? 0 : f.pop >= 0.35 ? 1 : easeOutBack(f.pop / 0.35);
-    const r = (f.type?.r ?? 8) * Math.max(0, k);
+    const id = f.type?.id ?? 'basic', r = (f.type?.r ?? 8) * food.size(id, f.rot) * Math.max(0, k);
     fp.set(f.x, 0, f.y); fq.setFromAxisAngle(FY, f.rot); fs.set(r, r, r);
-    food.add(f.type?.id ?? 'basic', fm.compose(fp, fq, fs));
+    food.add(id, f.rot, fm.compose(fp, fq, fs));
   }
   food.end();
 }
