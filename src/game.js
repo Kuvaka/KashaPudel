@@ -46,7 +46,7 @@ function makeDog(name, isPlayer, x, y, skill = 1) {
     name, isPlayer, xp: 0, stage: 0, r, drawR: r,
     x, y, px: x, py: y, vx: 0, vy: 0,
     dirX: 0, dirY: 0, mag: 0, wantDash: false, dashT: 0, dashCd: 0,
-    face: x < W.w / 2 ? 1 : -1, pop: 0, stun: 0, immune: 0, shoveCd: 0,
+    face: x < W.w / 2 ? 1 : -1, pop: 0, stun: 0, stunMax: 0, immune: 0, shoveCd: 0, skid: 0,
     finished: 0, place: 0, eaten: 0,
     // bot brain
     skill, think: rand(0, B.thinkSec), wander: rand(0, Math.PI * 2), target: null,
@@ -124,24 +124,41 @@ export class Game {
   move(d, dt) {
     d.dashCd = Math.max(0, d.dashCd - dt);
     d.dashT = Math.max(0, d.dashT - dt);
-    if (d.wantDash && d.dashCd === 0 && d.mag > 0.1 && !d.stun && !d.finished) {
-      d.dashT = DASH.durationSec; d.dashCd = DASH.cooldownSec;
-    }
+    const dashStart = d.wantDash && d.dashCd === 0 && d.mag > 0.1 && !d.stun && !d.finished;
+    if (dashStart) { d.dashT = DASH.durationSec; d.dashCd = DASH.cooldownSec; }
     let speed = D.baseSpeed * Math.pow(d.r / D.baseRadius, D.speedExp) * (d.dashT > 0 ? DASH.speedMul : 1);
     if (!d.isPlayer) speed *= B.speedMul;
     if (d.finished) speed *= 0.45; // winners stroll around
+    if (dashStart) { d.vx += d.dirX * speed * D.dashKick; d.vy += d.dirY * speed * D.dashKick; }
 
     d.shoveCd = Math.max(0, d.shoveCd - dt);
     d.immune = Math.max(0, d.immune - dt);
+    d.skid = 0;
     if (d.stun > 0) {
-      // Knocked back: slide out without control.
+      // Knocked down: slide out without control, then sit dazed.
       d.stun = Math.max(0, d.stun - dt);
       const fr = Math.exp(-SH.friction * dt);
       d.vx *= fr; d.vy *= fr;
+    } else if (d.mag < 0.05) {
+      // No input: brake to a stop along the current motion.
+      const v = Math.hypot(d.vx, d.vy);
+      if (v > 0) {
+        const k = Math.max(0, v - D.brake * dt) / v;
+        d.vx *= k; d.vy *= k;
+        d.skid = v > 120 ? v * 0.5 : 0;
+      }
     } else {
-      const k = 1 - Math.exp(-D.accel * dt);
-      d.vx += (d.dirX * d.mag * speed - d.vx) * k;
-      d.vy += (d.dirY * d.mag * speed - d.vy) * k;
+      // Split velocity into the wanted direction and sideways: the first speeds up or brakes,
+      // the sideways part decays by grip, which is what makes the dog drift in turns.
+      const ux = d.dirX, uy = d.dirY, want = speed * d.mag;
+      let par = d.vx * ux + d.vy * uy;
+      let sx = d.vx - par * ux, sy = d.vy - par * uy;
+      if (par < want) par = Math.min(want, par + (par < 0 ? D.brake : D.accel) * dt);
+      else par = Math.max(want, par - D.brake * dt);
+      const g = Math.exp(-D.grip * dt);
+      sx *= g; sy *= g;
+      d.vx = par * ux + sx; d.vy = par * uy + sy;
+      d.skid = Math.hypot(sx, sy) + Math.max(0, -par);
     }
     d.x = clamp(d.x + d.vx * dt, d.r, W.w - d.r);
     d.y = clamp(d.y + d.vy * dt, d.r, W.h - d.r);
@@ -223,7 +240,7 @@ export class Game {
     const ma = att.r * att.r, mv = vic.r * vic.r;
     const f = (2 * ma / (ma + mv)) * (dash ? 1 : 0.6); // 1 for equal dogs, up to ~2 for big ones
     vic.vx = nx * SH.power * f; vic.vy = ny * SH.power * f;
-    vic.stun = Math.min(SH.maxStunSec ?? Infinity, SH.stunSec * Math.min(1.6, f));
+    vic.stun = vic.stunMax = Math.min(SH.maxStunSec ?? Infinity, SH.stunSec * Math.min(1.3, f));
     vic.immune = vic.stun + SH.immuneSec;
     vic.dashT = 0;
     vic.target = null;

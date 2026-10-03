@@ -15,7 +15,11 @@ export const CONFIG = {
     inStageGrowth: 0.35,  // share of the way to the next stage's radius grown before level-up
     baseSpeed: 220,       // units/s at base radius
     speedExp: -0.22,      // speed ~ (r / baseRadius) ^ speedExp: 220 at r=20, ~180 at r=50
-    accel: 9,             // velocity steering rate, 1/s
+    // Handling has momentum: the dog speeds up and brakes over a moment and drifts in sharp turns.
+    accel: 650,           // units/s^2 speeding up along the wanted direction
+    brake: 560,           // units/s^2 slowing down: stick released, or turning back
+    grip: 3.2,            // 1/s decay of sideways speed; lower = longer drifts
+    dashKick: 0.35,       // a dash instantly adds this share of the dash speed
     eatReach: 1.0,        // food is eaten when its center is within r * eatReach
   },
 
@@ -55,16 +59,18 @@ export const CONFIG = {
             'Мася', 'Тоффи', 'Персик', 'Кнопка', 'Бисквит', 'Ватрушка'],
   },
 
-  // Shoves: a dashing dog (or a much bigger running one) knocks a rival back; the rival spins
-  // for a moment and can't eat. No XP is lost.
+  // Shoves: a dashing dog knocks a rival back; the rival tumbles, sits dazed for a moment and
+  // can't eat, then is protected for a while. No XP is lost.
   shove: {
     bodyShove: false,
-    maxStunSec: 0.55,
+    maxStunSec: 2.4,
     dashMinSpeed: 200,    // approach speed needed for a dash shove
     bigRatio: 1.25,       // ...or the attacker is this much bigger
     bigMinSpeed: 120,     // ...and approaches at least this fast
     power: 360,           // knockback speed for equal-sized dogs
-    stunSec: 0.45,        // spin time for equal-sized dogs
+    stunSec: 1.8,         // knocked-down time for equal-sized dogs: tumble, sit dazed, get up
+    fallSec: 0.35,        // render: tumble part at the start of the knock-down
+    getUpSec: 0.4,        // render: hop back on the paws at the end
     cooldown: 1.2,        // attacker can't shove again for this long
     immuneSec: 2.5,       // a shoved dog can't be shoved again for this long after the spin
     recoil: 0.3,          // attacker keeps this share of its speed

@@ -1,7 +1,30 @@
 import { CONFIG } from './config.js';
 import { SPRITE_R } from './art.js';
 
-const { world: W, camera: CAM, dog: D } = CONFIG;
+const { world: W, camera: CAM, dog: D, shove: SH } = CONFIG;
+// Which part of the knock-down a dog is in, and progress k (0..1) through it.
+function stunPhase(d) {
+  const el = d.stunMax - d.stun;
+  if (el < SH.fallSec) return { phase: 'fall', k: el / SH.fallSec };
+  if (d.stun < SH.getUpSec) return { phase: 'up', k: 1 - d.stun / SH.getUpSec };
+  return { phase: 'sit', k: 0 };
+}
+
+function drawSwirl(ctx, x, y, R, spin) {
+  if (R < 1) return;
+  ctx.save();
+  ctx.translate(x, y); ctx.scale(1, 0.55); ctx.rotate(spin);
+  ctx.beginPath();
+  for (let i = 0; i <= 48; i++) {
+    const a = (i / 48) * Math.PI * 4, rr = R * (i / 48);
+    i ? ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr) : ctx.moveTo(0, 0);
+  }
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = '#3a2618'; ctx.lineWidth = Math.max(4, R * 0.32); ctx.stroke();
+  ctx.strokeStyle = '#ffffff'; ctx.lineWidth = Math.max(2, R * 0.16); ctx.stroke();
+  ctx.restore();
+}
+
 const POP_SEC = 0.35; // new food grows from nothing with a little overshoot
 const easeOutBack = (x) => 1 + 2.7 * (x - 1) ** 3 + 1.7 * (x - 1) ** 2;
 let visualSeed = 0x91e10da5;
@@ -152,11 +175,28 @@ export class Renderer {
       ctx.beginPath(); ctx.ellipse(x, y + r * 0.75, r * 1.3, r * 0.55, 0, 0, Math.PI * 2); ctx.stroke();
     }
     const sprite = this.art.dogs[d.stage];
-    const dizzy = d.stun > 0 ? Math.sin(t * 30) * 0.3 * Math.min(1, d.stun * 3) : 0;
+    // Knock-down: tumble -> sit dazed -> hop back up. sx/sy squash the sprite around its feet.
+    let rot = d.face * Math.max(-0.25, Math.min(0.25, d.vy / 900)), lift = bob * r * 0.18, sx = 1, sy = 1;
+    const down = d.stun > 0 ? stunPhase(d) : null;
+    if (down) {
+      if (down.phase === 'fall') {
+        rot = d.face * down.k * Math.PI * 2; // one full roll
+        sx = 1 + 0.12 * down.k; sy = 1 - 0.2 * down.k; lift = 0;
+      } else if (down.phase === 'sit') {
+        rot = Math.sin(t * 4 + d.wander) * 0.08; sx = 1.12; sy = 0.8; lift = 0;
+      } else {
+        const k = down.k; // 0..1 getting up
+        lift = Math.sin(k * Math.PI) * r * 0.4;
+        sx = 1.12 - 0.12 * k; sy = 0.8 + 0.2 * k + Math.sin(k * Math.PI) * 0.12;
+        rot = 0;
+      }
+    } else if (d.skid > 60) {
+      rot -= d.face * Math.min(0.22, (d.skid - 60) / 600); // lean back while skidding
+    }
     ctx.save();
-    ctx.translate(x, y - bob * r * 0.18);
-    ctx.rotate(d.face * Math.max(-0.25, Math.min(0.25, d.vy / 900)) + dizzy);
-    ctx.scale(d.face * popS * breathe, popS / breathe);
+    ctx.translate(x, y - lift + r * 0.6 * (1 - sy));
+    ctx.rotate(rot);
+    ctx.scale(d.face * popS * breathe * sx, popS / breathe * sy);
     if (sprite.png) {
       const w = r * 2.9, h = w * sprite.img.height / sprite.img.width;
       ctx.drawImage(sprite.img, -w / 2, -h / 2 - r * 0.05, w, h);
@@ -166,15 +206,23 @@ export class Renderer {
     }
     ctx.restore();
 
-    if (d.stun > 0) {
-      // Little stars circling over the head.
+    if (down && down.phase !== 'up') {
+      // Dazed: a swirl turning over the head with two little stars orbiting it.
+      const hy = y - r * 1.25, appear = down.phase === 'fall' ? down.k : 1;
+      drawSwirl(ctx, x, hy, r * 0.62 * appear, t * 7);
       ctx.fillStyle = '#ffe45c'; ctx.strokeStyle = '#3a2618'; ctx.lineWidth = 1.5;
-      ctx.font = `900 ${Math.max(12, r * 0.45)}px system-ui, sans-serif`; ctx.textAlign = 'center';
-      for (let k = 0; k < 3; k++) {
-        const a = t * 8 + k * 2.1;
-        const sx = x + Math.cos(a) * r * 0.7, sy = y - r * 1.05 + Math.sin(a) * r * 0.22;
-        ctx.strokeText('★', sx, sy); ctx.fillText('★', sx, sy);
+      ctx.font = `900 ${Math.max(11, r * 0.36)}px system-ui, sans-serif`; ctx.textAlign = 'center';
+      for (let k = 0; k < 2; k++) {
+        const a = t * 5 + k * Math.PI;
+        const px = x + Math.cos(a) * r * 1.0 * appear, py = hy + Math.sin(a) * r * 0.25;
+        ctx.strokeText('★', px, py); ctx.fillText('★', px, py);
       }
+    }
+
+    // Dust puffs from the paws while skidding or braking hard.
+    if (!down && d.skid > 90 && visualRandom() < Math.min(1, (d.skid / 12) * dt)) {
+      this.particles.push({ x: x + (visualRandom() - 0.5) * r, y: y + r * 0.7, vx: -d.vx * 0.15, vy: -15 - visualRandom() * 20,
+        life: 0.45, max: 0.45, color: 'rgba(205,190,150,0.7)', size: r * (0.14 + visualRandom() * 0.1) });
     }
 
     if (d.dashT > 0 && speed > 200 && visualRandom() < Math.min(1, 30 * dt)) {
@@ -189,7 +237,7 @@ export class Renderer {
     ctx.font = `800 ${size}px system-ui, sans-serif`;
     ctx.textAlign = 'center';
     ctx.lineWidth = size * 0.25; ctx.strokeStyle = 'rgba(40,25,15,0.85)'; ctx.lineJoin = 'round';
-    const ty = y - d.drawR * 1.55;
+    const ty = y - d.drawR * (d.stun > 0 ? 2.15 : 1.55); // make room for the dazed swirl
     ctx.strokeText(d.name, x, ty);
     ctx.fillStyle = d.isPlayer ? '#ffe45c' : '#ffffff';
     ctx.fillText(d.name, x, ty);
