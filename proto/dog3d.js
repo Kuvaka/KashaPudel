@@ -7,6 +7,7 @@ import { buildDogAssets } from './dogModel.js';
 import { DogVisual } from './dogVisual.js';
 import { buildMeadow, buildFood } from './meadow.js';
 import { FX } from './fx.js';
+import { LOCK_UNIFORMS } from './toon.js';
 
 const { world: W, dog: D, camera: CAM, shove: SH, food: F } = CONFIG;
 const $ = (id) => document.getElementById(id);
@@ -103,6 +104,7 @@ function syncView() {
   renderer.getDrawingBufferSize(V.res);
   V.pxPerUnit = V.res.y / (camera.top - camera.bottom);
   V.dpr = renderer.getPixelRatio();
+  LOCK_UNIFORMS.uHalfWidthPx.value = 0.8 * V.dpr; // 1.6 CSS px ink arcs in the fur
   const px = V.dpr * 1.5;
   meadow.setRes(V.res, px);
   for (const m of food.lineMats) { m.uniforms.uRes.value.copy(V.res); m.uniforms.uPx.value = px; }
@@ -237,6 +239,10 @@ function drawLineup(t, view = 'side') {
     v.root.visible = [0, 3, 5].includes(i);
     d.r = v.root.visible ? 30 : 0; d.drawR = 30; d.mag = 0.2; d.dirX = 0.5; d.dirY = 0.87;
   }
+  // &bg=plain is the concept comparison: one fixed pose every time (standing, mouth open, eyes
+  // open, the same head turn), so two captures differ only by the model.
+  const plain = location.search.includes('bg=plain');
+  if (plain) { t = 1.3; for (const [i, { d, v }] of lineup.entries()) { d.mag = 0; v.seed = 2 + i * 0.37; v.blinkT = 99; v.blink = 0; v.still = 0; v.yaw = Math.atan2(-0.87, 0.5); v.yawRate = 0; } }
   let x = 0;
   for (const { d, v } of lineup) { x += d.r * 1.6; d.x = x; d.y = 0; x += d.r * 1.6; }
   for (const { d, v } of lineup) v.update(d, d.x, d.y, 1 / 60, t);
@@ -249,6 +255,12 @@ function drawLineup(t, view = 'side') {
   camera.updateProjectionMatrix();
   syncView();
   meadow.ground.visible = true; food.visible = false;
+  // &bg=plain: only the dogs on the concept sheet's flat grey-green, for side-by-side reviews.
+  if (plain) {
+    const keep = new Set(lineup.map(({ v }) => v.root));
+    for (const o of scene.children) if (!o.isLight && !keep.has(o)) o.visible = false;
+    scene.background = new THREE.Color('#969b8a'); scene.fog = null;
+  }
   renderer.render(scene, camera);
 }
 

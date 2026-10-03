@@ -5,16 +5,17 @@
 // All sizes are in units of the collision radius R; the dog group is scaled by drawR.
 import * as THREE from 'three';
 import { mergeVertices } from 'three/addons/BufferGeometryUtils.js';
+import { HEAD_LOCKS, BODY_LOCKS, lockField } from './locks.js';
 
 // Per-stage proportions, in units of the collision radius R. Chibi like the 2D sprites:
 // the puppy grows into its legs and muzzle, but the head stays big.
 export const PROFILES = [
-  { hw: 1.3, bl: 1.34, bw: 0.98, sh: 0.56, mz: 0.16, ed: 0.52, leg: 0.21 },
-  { hw: 1.29, bl: 1.37, bw: 0.98, sh: 0.6, mz: 0.18, ed: 0.55, leg: 0.205 },
-  { hw: 1.28, bl: 1.4, bw: 0.97, sh: 0.64, mz: 0.2, ed: 0.58, leg: 0.2 },
-  { hw: 1.27, bl: 1.43, bw: 0.99, sh: 0.68, mz: 0.22, ed: 0.6, leg: 0.195 },
-  { hw: 1.26, bl: 1.46, bw: 1.02, sh: 0.72, mz: 0.23, ed: 0.62, leg: 0.195 },
-  { hw: 1.26, bl: 1.49, bw: 1.07, sh: 0.75, mz: 0.24, ed: 0.64, leg: 0.2 },
+  { hw: 1.3, bl: 1.34, bw: 0.98, sh: 0.56, mz: 0.13, ed: 0.52, leg: 0.21 },
+  { hw: 1.29, bl: 1.37, bw: 0.98, sh: 0.6, mz: 0.14, ed: 0.55, leg: 0.205 },
+  { hw: 1.28, bl: 1.4, bw: 0.97, sh: 0.64, mz: 0.15, ed: 0.58, leg: 0.2 },
+  { hw: 1.27, bl: 1.43, bw: 0.99, sh: 0.68, mz: 0.15, ed: 0.6, leg: 0.195 },
+  { hw: 1.26, bl: 1.46, bw: 1.02, sh: 0.72, mz: 0.16, ed: 0.62, leg: 0.195 },
+  { hw: 1.26, bl: 1.49, bw: 1.07, sh: 0.75, mz: 0.16, ed: 0.64, leg: 0.2 },
 ];
 
 // Where the right eye sits on the head (direction from the skull centre): forward, low and
@@ -55,8 +56,8 @@ function headSdf(P, brows = true) {
     // Muzzle: a real snout block sticking out of the face (a dog, not a rodent), wide moustache
     // puffs on both sides of it and a soft chin.
     [[h * 0.4 + P.mz * 0.6, -h * 0.13, 0], [P.mz * 0.7 + h * 0.16, h * 0.17, h * 0.21]],
-    [[h * 0.42 + P.mz * 0.4, -h * 0.2, h * 0.14], [P.mz * 0.5 + h * 0.13, h * 0.15, h * 0.165]],
-    [[h * 0.42 + P.mz * 0.4, -h * 0.2, -h * 0.14], [P.mz * 0.5 + h * 0.13, h * 0.15, h * 0.165]],
+    [[h * 0.42 + P.mz * 0.4, -h * 0.2, h * 0.16], [P.mz * 0.5 + h * 0.13, h * 0.17, h * 0.18]],
+    [[h * 0.42 + P.mz * 0.4, -h * 0.2, -h * 0.16], [P.mz * 0.5 + h * 0.13, h * 0.17, h * 0.18]],
     // Soft brow tufts, part of the head: the upper lid line framing each eye.
     ...(brows ? [[[h * 0.35, h * 0.21, h * 0.2], [h * 0.1, h * 0.05, h * 0.11]],
       [[h * 0.35, h * 0.21, -h * 0.2], [h * 0.1, h * 0.05, h * 0.11]]] : []),
@@ -117,7 +118,7 @@ function sphereTopology(detail) {
 }
 
 // Bakes one morphing part. shapeOf(P) -> sdf; fur(dir) -> {amp, shade} per direction.
-function bakePart(detail, shapeOf, fur, curlFreq, lockFreq = 0) {
+function bakePart(detail, shapeOf, fur, curlFreq, locksDef = null, lockSet = 0) {
   const geo = sphereTopology(detail);
   const n = geo.attributes.position.count;
   const dirs = [];
@@ -125,7 +126,7 @@ function bakePart(detail, shapeOf, fur, curlFreq, lockFreq = 0) {
 
   const bumps = dirs.map((d) => curls(d.x * curlFreq + 17, d.y * curlFreq, d.z * curlFreq));
   // Big locks: a dozen or two soft lobes that show in the silhouette, like the concept's tufts.
-  const locks = dirs.map((d) => lockFreq ? curls(d.x * lockFreq + 41, d.y * lockFreq + 5, d.z * lockFreq) : 1);
+  const locks = dirs.map((d) => locksDef ? lockField(locksDef, d) : 1);
   const positions = [], normals = [];
   for (const P of PROFILES) {
     const sdf = shapeOf(P);
@@ -144,20 +145,22 @@ function bakePart(detail, shapeOf, fur, curlFreq, lockFreq = 0) {
   }
 
   // Vertex shade: darker in the creases between curl lobes. `patch`: light muzzle / chest.
-  const col = new Float32Array(n * 3), patch = new Float32Array(n);
+  const col = new Float32Array(n * 3), patch = new Float32Array(n), lockInfo = new Float32Array(n * 2);
   for (let i = 0; i < n; i++) {
     const d = dirs[i], f = fur(d, PROFILES[0]);
-    const crease = lockFreq ? 0.06 * (1 - smooth(0.02, 0.4, locks[i])) + 0.03 * (1 - smooth(0.02, 0.45, bumps[i]))
+    const crease = locksDef ? 0.06 * (1 - smooth(0.02, 0.4, locks[i])) + 0.03 * (1 - smooth(0.02, 0.45, bumps[i]))
       : 0.07 * (1 - smooth(0.02, 0.45, bumps[i]));
     const c = (1 - crease * (f.crease ?? 1)) * f.shade;
     col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = c;
     patch[i] = f.patch ?? 0;
+    lockInfo[i * 2] = lockSet; lockInfo[i * 2 + 1] = f.ink ?? 1; // which lock list; ink allowed here
   }
 
   geo.setAttribute('position', positions[0].clone());
   geo.setAttribute('normal', normals[0].clone());
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
   geo.setAttribute('furPatch', new THREE.BufferAttribute(patch, 1));
+  geo.setAttribute('lockInfo', new THREE.BufferAttribute(lockInfo, 2));
   const od = new Float32Array(n * 3);
   dirs.forEach((d, i) => d.toArray(od, i * 3));
   geo.setAttribute('outlineDir', new THREE.BufferAttribute(od, 3));
@@ -214,15 +217,15 @@ function bakeBlob(sdf, center, detail, freq, amp) {
 
 // Floppy ear, hanging from the origin down to y ~ -1; flat in z; wavy lobes widening to the tip.
 function earSdf() {
-  const f = 0.55; // thickness
+  // Six big curly clumps in pairs (root, middle, bottom), the bottom ones widest and thickest.
   return unionOf([
-    [[0, -0.14, 0], [0.2, 0.2, 0.2 * f]],
-    [[0.02, -0.38, 0], [0.25, 0.22, 0.25 * f]],
-    [[-0.02, -0.62, 0], [0.34, 0.23, 0.3 * f]],              // lower third wider: frames the cheeks
-    [[-0.15, -0.84, 0], [0.19, 0.17, 0.17 * f]],
-    [[0.15, -0.86, 0], [0.19, 0.17, 0.17 * f]],
-    [[0, -0.9, 0], [0.2, 0.15, 0.18 * f]],
-  ], 0.08);
+    [[0.05, -0.12, 0], [0.17, 0.16, 0.09]],
+    [[-0.1, -0.2, 0], [0.16, 0.16, 0.09]],
+    [[0.1, -0.44, 0.01], [0.18, 0.19, 0.13]],
+    [[-0.11, -0.47, 0], [0.18, 0.19, 0.13]],
+    [[0.12, -0.76, 0], [0.19, 0.2, 0.16]],
+    [[-0.12, -0.79, 0.01], [0.18, 0.19, 0.16]],
+  ], 0.06);
 }
 
 // Curled plume tail in its own frame (units ~R): base at the origin, a short riser straight up
@@ -353,24 +356,66 @@ function eyeTexture(dizzy) {
   return t;
 }
 
-// Mouth decal under the nose: a little "w" smile, open with a pink tongue while running.
+// Mouth decal under the nose: a wide open "D" with the corners turned up while running, a
+// little "w" smile when calm. The tongue itself is a small 3D mesh.
+// Canvas 128x96 covers MOUTH_W x MOUTH_H on the muzzle.
+export const MOUTH_W = 0.5, MOUTH_H = 0.375; // x hw
 function mouthTexture(open) {
   const c = document.createElement('canvas'); c.width = 128; c.height = 96;
   const x = c.getContext('2d');
   x.lineCap = 'round'; x.lineJoin = 'round';
+  x.strokeStyle = '#4a2a18';
   if (open) {
-    x.fillStyle = '#5a2418';
-    x.beginPath(); x.moveTo(30, 26); x.quadraticCurveTo(64, 34, 98, 26); x.quadraticCurveTo(92, 84, 64, 86);
-    x.quadraticCurveTo(36, 84, 30, 26); x.fill();
-    x.fillStyle = '#b8505e'; // back of the mouth; the tongue itself is a small 3D mesh
-    x.beginPath(); x.ellipse(64, 66, 20, 13, 0, 0, Math.PI * 2); x.fill();
+    x.beginPath(); x.moveTo(20, 22); x.quadraticCurveTo(42, 34, 64, 28); x.quadraticCurveTo(86, 34, 108, 22);
+    x.bezierCurveTo(106, 66, 88, 82, 64, 82); x.bezierCurveTo(40, 82, 22, 66, 20, 22); x.closePath();
+    x.fillStyle = '#5a2418'; x.fill();
+    x.save(); x.clip();
+    x.fillStyle = '#b8505e'; x.beginPath(); x.ellipse(64, 74, 30, 16, 0, 0, Math.PI * 2); x.fill();
+    x.restore();
+    x.lineWidth = 5; x.stroke();
+    x.lineWidth = 6; x.beginPath(); x.moveTo(64, 6); x.lineTo(64, 28); x.stroke();
+  } else {
+    x.lineWidth = 7;
+    x.beginPath(); x.moveTo(64, 8); x.lineTo(64, 30);
+    x.moveTo(24, 24); x.quadraticCurveTo(44, 44, 64, 30); x.quadraticCurveTo(84, 44, 104, 24); x.stroke();
   }
-  x.strokeStyle = '#4a2a18'; x.lineWidth = 7;
-  x.beginPath(); x.moveTo(64, 8); x.lineTo(64, 24);
-  x.moveTo(22, 20); x.quadraticCurveTo(42, 38, 64, 24); x.quadraticCurveTo(86, 38, 106, 20); x.stroke();
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
+}
+
+// Mouth patch that hugs the muzzle: a grid projected onto each stage's head surface along the
+// mouth normal, a hair above it, morphing with the head. Head-local; centre = mouth anchor.
+export const MOUTH_N = [1, 0.15, 0];
+function bakeMouth() {
+  const NX = 14, NY = 10;
+  // U x V = n, so the front faces look out of the muzzle.
+  const n = new THREE.Vector3(...MOUTH_N).normalize(), U = new THREE.Vector3(0, 0, -1);
+  const V = new THREE.Vector3().crossVectors(n, U).normalize();
+  const geo = new THREE.PlaneGeometry(1, 1, NX, NY);
+  const uv = geo.attributes.position, count = uv.count;
+  const targets = PROFILES.map((P) => {
+    const sdf = headSdf(P), c = anchorsOf(P).mouth.clone().addScaledVector(V, P.hw * 0.03);
+    const arr = new Float32Array(count * 3), p = new THREE.Vector3(), q = new THREE.Vector3();
+    for (let i = 0; i < count; i++) {
+      p.copy(c).addScaledVector(U, uv.getX(i) * MOUTH_W * P.hw).addScaledVector(V, uv.getY(i) * MOUTH_H * P.hw);
+      // March in from outside along -n to the surface, then lift it a hair off.
+      let t = -0.3 * P.hw, hit = false;
+      for (let k = 0; k < 60 && !hit; k++, t += 0.01 * P.hw) { q.copy(p).addScaledVector(n, -t); if (sdf(q) < 0) hit = true; }
+      if (hit) {
+        let lo = t - 0.02 * P.hw, hi = t;
+        for (let k = 0; k < 12; k++) { const m = (lo + hi) / 2; q.copy(p).addScaledVector(n, -m); if (sdf(q) < 0) hi = m; else lo = m; }
+        p.addScaledVector(n, -lo + 0.005 * P.hw);
+      }
+      p.toArray(arr, i * 3);
+    }
+    return new THREE.BufferAttribute(arr, 3);
+  });
+  geo.setAttribute('position', targets[0].clone());
+  geo.deleteAttribute('normal');
+  geo.morphAttributes.position = targets;
+  geo.morphTargetsRelative = false;
+  return geo;
 }
 
 function sdfNormal(sdf, p, e = 1e-3) {
@@ -412,24 +457,37 @@ export function buildDogAssets() {
   // Curl lobes: few and big, so the toon light turns each into a flat "cloud" like the sprite.
   // Curly face like the concept: only small smooth sockets around the eyes and the nose tip.
   const eyeDir = new THREE.Vector3(...EYE_DIR).normalize(), noseDir = new THREE.Vector3(1, -0.17, 0).normalize();
+  const mouthDir = new THREE.Vector3(1, -0.36, 0).normalize();
   const head = bakePart(18, headSdf, (d, P) => {
     const eye = smooth(0.93, 0.985, Math.max(d.dot(eyeDir), d.x * eyeDir.x + d.y * eyeDir.y - d.z * eyeDir.z));
     const nose = smooth(0.95, 0.99, d.dot(noseDir));
-    const patch = smooth(0.42, 0.8, d.x) * smooth(0.12, -0.2, d.y);
+    // Light markings like the concept: moustache pads, a narrow blaze between the eyes that
+    // widens on the forehead and joins the muzzle. Crisp edges, not a smudge.
+    const pads = smooth(0.6, 0.68, d.x) * smooth(0.03, -0.05, d.y);
+    const half = 0.08 + 0.1 * smooth(0.15, 0.55, d.y);
+    const blaze = smooth(half + 0.04, half, Math.abs(d.z)) * smooth(0.3, 0.38, d.x) * smooth(0.7, 0.62, d.y);
+    const patch = Math.max(pads, blaze);
     const calm = 1 - 0.9 * Math.max(eye, nose);
-    return { amp: 0.015 * P.hw * calm, lock: 0.045 * P.hw * calm * (1 - 0.5 * patch), shade: 1, patch,
-      crease: calm }; // calm creases around eyes and nose too
-  }, 3.2, 1.05);
-  const body = bakePart(16, bodySdf, (d) => ({ amp: 0.015, lock: 0.055, shade: 1,
-    patch: smooth(0.35, 0.8, d.x) * smooth(0.25, -0.25, d.y) }), 2.9, 1.25);
+    const mouth = smooth(0.9, 0.97, d.dot(mouthDir));
+    // Smooth skin under the mouth patch: it is projected onto the bare SDF, fur would bury it.
+    const lip = 1 - smooth(0.84, 0.91, d.dot(mouthDir));
+    return { amp: 0.015 * P.hw * calm * lip, lock: 0.07 * P.hw * calm * (1 - 0.5 * pads) * lip, shade: 1, patch,
+      crease: calm, ink: calm * (1 - mouth) * (1 - pads) }; // calm face around eyes, nose, mouth
+  }, 3.2, HEAD_LOCKS, 1);
+  const body = bakePart(16, bodySdf, (d, P) => ({ amp: 0.015, lock: 0.08 * P.bw, shade: 1,
+    patch: smooth(0.45, 0.58, d.x) * smooth(0.15, 0.02, d.y) }), 2.9, BODY_LOCKS, 2);
   const limb = bakeLimb();
   const ball = bakeFluffBall(5, 2.2, 0.16);
-  const ear = bakeBlob(earSdf(), [0, -0.5, 0], 5, 3.2, 0.08);
+  const paw = bakeFluffBall(5, 2.2, 0.04); // soft round mitts, not spiky pom-poms
+  const ear = bakeBlob(earSdf(), [0, -0.5, 0], 8, 3.2, 0.04);
   const tail = bakeTailTube();
-  for (const g of [limb, ball, ear, tail]) g.setAttribute('furPatch', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count), 1));
+  for (const g of [limb, ball, paw, ear, tail]) {
+    g.setAttribute('furPatch', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count), 1));
+    g.setAttribute('lockInfo', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
+  }
   const anchors = PROFILES.map(anchorsOf);
   return {
-    head, body, limb, ball, ear, tail, anchors,
+    head, body, limb, ball, paw, ear, tail, anchors, mouth: bakeMouth(),
     eyeGeo: new THREE.CircleGeometry(1, 24),
     eyeBall: new THREE.SphereGeometry(1, 20, 14),
     noseGeo: new THREE.SphereGeometry(1, 16, 12),

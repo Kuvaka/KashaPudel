@@ -1,6 +1,7 @@
 // Cel shading in the style of the 2D sprites: three flat light bands, a warm light patch mask
 // (muzzle, chest) and a dark brown outline drawn as an inflated back-face hull.
 import * as THREE from 'three';
+import { HEAD_LOCKS, BODY_LOCKS } from './locks.js';
 
 export const OUTLINE_COLOR = '#4a2a18';
 
@@ -14,26 +15,48 @@ function gradientMap() {
   return gradient;
 }
 
-// Painted curls: a short C-shaped arc around each Worley cell centre on the part's sphere
-// direction (stable while the stage morphs). Fades out when the curls get too small on screen.
-const CURL_GLSL = `
-vec3 curlHash(vec3 p) {
-  p = vec3(dot(p, vec3(127.1, 311.7, 74.7)), dot(p, vec3(269.5, 183.3, 246.1)), dot(p, vec3(113.5, 271.9, 124.6)));
-  return fract(sin(p) * 43758.5453);
-}
-float curlStroke(vec3 dir) {
-  if (dot(dir, dir) < 0.25) return 0.0; // parts without a sphere direction (leg tubes)
-  vec3 p = dir * 4.2 + 3.0, i = floor(p), f = fract(p);
-  float best = 9.0; vec3 off = vec3(0.0), h = vec3(0.0);
-  for (int z = -1; z <= 1; z++) for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++) {
-    vec3 g = vec3(float(x), float(y), float(z)), o = curlHash(i + g), r = g + o - f;
-    float d = dot(r, r);
-    if (d < best) { best = d; off = r; h = o; }
+// Ink arcs inside the big locks, like the concept's curl lines: the same lock centres as the
+// baked lumps (locks.js), an arc of ~100 degrees on the combed side of each lock, a constant
+// pixel width, fading out when the dog is small on screen. Only on head (set 1) and body (2).
+const NH = HEAD_LOCKS.seeds.length, NB = BODY_LOCKS.seeds.length, NL = NH + NB;
+export const LOCK_UNIFORMS = {
+  uLockSeed: { value: [...HEAD_LOCKS.seeds, ...BODY_LOCKS.seeds] },
+  uGuide: { value: [...HEAD_LOCKS.guides, ...BODY_LOCKS.guides] },
+  uInk: { value: [...HEAD_LOCKS.ink, ...BODY_LOCKS.ink] },
+  uHalfWidthPx: { value: 0.8 },   // half of 1.6 CSS px, times the device pixel ratio
+  uInsetE: { value: 0.06 },       // the arc runs a little inside the lock, not on the border
+  uInkColor: { value: new THREE.Color(OUTLINE_COLOR) },
+};
+const LOCK_GLSL = `
+#define NH ${NH}
+#define NL ${NL}
+uniform vec3 uLockSeed[NL];
+uniform vec3 uGuide[NL];
+uniform float uInk[NL];
+uniform float uHalfWidthPx;
+uniform float uInsetE;
+uniform vec3 uInkColor;
+float lockInk(vec3 dir, float set, float allow) {
+  if (set < 0.5) return 0.0;
+  vec3 p = normalize(dir);
+  int i0 = set < 1.5 ? 0 : NH, i1 = set < 1.5 ? NH : NL;
+  float f1 = 1e10, f2 = 1e10, on = 0.0;
+  vec3 nearest = vec3(0.0), guide = vec3(0.0, 1.0, 0.0);
+  for (int i = 0; i < NL; i++) {
+    if (i < i0 || i >= i1) continue;
+    vec3 q = p - uLockSeed[i]; float d = dot(q, q);
+    if (d < f1) { f2 = f1; f1 = d; nearest = uLockSeed[i]; guide = uGuide[i]; on = uInk[i]; }
+    else if (d < f2) f2 = d;
   }
-  float d = sqrt(best), aa = max(fwidth(d), 1e-4);
-  float ring = 1.0 - smoothstep(0.035, 0.035 + aa * 1.5, abs(d - 0.27));
-  float arc = smoothstep(-0.3, 0.3, dot(normalize(-off), normalize(h - 0.5)));
-  return ring * arc * (1.0 - smoothstep(0.05, 0.12, aa));
+  float E = sqrt(f2) - sqrt(f1);
+  float pixelE = max(length(vec2(dFdx(E), dFdy(E))), 1e-5);
+  float stroke = 1.0 - smoothstep(max(0.0, uHalfWidthPx - 0.5), uHalfWidthPx + 0.5, abs(E - uInsetE) / pixelE);
+  vec3 axis = normalize(nearest), off = p - nearest; off -= axis * dot(off, axis);
+  vec3 flow = guide - axis * dot(guide, axis);
+  float cosArc = dot(off, flow) * inversesqrt(max(dot(off, off) * dot(flow, flow), 1e-8));
+  float arc = smoothstep(0.25, 0.5, cosArc);
+  float lod = 1.0 - smoothstep(0.06, 0.14, pixelE);
+  return stroke * arc * lod * on * clamp(allow, 0.0, 1.0);
 }
 `;
 
@@ -43,14 +66,16 @@ export function coatMaterial(color, patchColor = color) {
   m.userData.patch = { value: new THREE.Color(patchColor) };
   m.onBeforeCompile = (sh) => {
     sh.uniforms.uPatch = m.userData.patch;
+    Object.assign(sh.uniforms, LOCK_UNIFORMS);
     sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float furPatch;\nattribute vec3 outlineDir;\nvarying float vPatch;\nvarying vec3 vDir;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvPatch = furPatch;\nvDir = outlineDir;');
+      .replace('#include <common>', '#include <common>\nattribute float furPatch;\nattribute vec3 outlineDir;\nattribute vec2 lockInfo;\nvarying float vPatch;\nvarying vec3 vDir;\nvarying vec2 vLock;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvPatch = furPatch;\nvDir = outlineDir;\nvLock = lockInfo;');
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform vec3 uPatch;\nvarying float vPatch;\nvarying vec3 vDir;\n' + CURL_GLSL)
+      .replace('#include <common>', '#include <common>\nuniform vec3 uPatch;\nvarying float vPatch;\nvarying vec3 vDir;\nvarying vec2 vLock;\n' + LOCK_GLSL)
       .replace('#include <color_fragment>',
-        '#include <color_fragment>\ndiffuseColor.rgb = mix(diffuseColor.rgb, uPatch * vColor.rgb, vPatch);\n' +
-        'diffuseColor.rgb *= 1.0 - 0.2 * curlStroke(vDir);');
+        '#include <color_fragment>\ndiffuseColor.rgb = mix(diffuseColor.rgb, uPatch * vColor.rgb, vPatch);')
+      .replace('#include <opaque_fragment>',
+        '#include <opaque_fragment>\ngl_FragColor.rgb = mix(gl_FragColor.rgb, uInkColor, 0.7 * lockInk(vDir, vLock.x, vLock.y));');
   };
   m.customProgramCacheKey = () => 'coat';
   return m;

@@ -3,7 +3,7 @@
 // Root-local frame: +x = nose direction, +y = up, +z = dog's right. Units = collision radius R
 // (the root is scaled by drawR), except planted feet which are kept in world space.
 import * as THREE from 'three';
-import { PROFILES } from './dogModel.js';
+import { PROFILES, MOUTH_N } from './dogModel.js';
 import { CONFIG } from '../src/config.js';
 import { stunPhase } from '../src/game.js';
 import { coatMaterial, outlineMaterial, outline, toonMaterial } from './toon.js';
@@ -14,7 +14,7 @@ const PALETTE = [
   { coat: '#f4dfbd', light: '#fdf6e6', ear: '#e6c393' },
   { coat: '#f2cd9c', light: '#fdebc8', ear: '#dca66a' },
   { coat: '#e0904f', light: '#f9c48a', ear: '#c26e38' },
-  { coat: '#9a5d3a', light: '#f1d3b0', ear: '#74422a' },
+  { coat: '#9a5d3a', light: '#fff1d8', ear: '#74422a' },
   { coat: '#cdc2bb', light: '#f7ecdd', ear: '#b5a69d' },
   { coat: '#f2c789', light: '#fcebc0', ear: '#dca15e' },
 ];
@@ -188,14 +188,14 @@ export class DogVisual {
 
     this.legs = LEGS.map((L) => {
       const upper = new THREE.Mesh(assets.limb, this.mat), lower = new THREE.Mesh(assets.limb, this.mat);
-      const knee = new THREE.Mesh(assets.ball, this.mat), paw = new THREE.Mesh(assets.ball, this.pawMat);
+      const knee = new THREE.Mesh(assets.ball, this.mat), paw = new THREE.Mesh(assets.paw, this.pawMat);
       pose.add(upper, lower, knee, paw);
       return { ...L, upper, lower, knee, paw, foot: new THREE.Vector3(), from: new THREE.Vector3(),
         swing: false, t: 0, quick: null, over: 0 };
     });
 
-    this.mouth = new THREE.Mesh(M.plane, new THREE.MeshBasicMaterial({ map: assets.mouthClosed, transparent: true,
-      depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
+    this.mouth = new THREE.Mesh(assets.mouth, new THREE.MeshBasicMaterial({ map: assets.mouthClosed, transparent: true,
+      depthWrite: false }));
     this.head.add(this.mouth);
     this.tongue = new THREE.Mesh(M.tongueGeo, M.tongue); this.head.add(this.tongue);
     // Dark outline around every furry part, like the sprites.
@@ -225,7 +225,7 @@ export class DogVisual {
     const w = smooth(u);
     const P = mixProfile(PROFILES[st], PROFILES[next], w);
     const a0 = A.anchors[st], a1 = A.anchors[next];
-    for (const m of [this.bodyMesh, this.headMesh]) {
+    for (const m of [this.bodyMesh, this.headMesh, this.mouth]) {
       m.morphTargetInfluences.fill(0);
       m.morphTargetInfluences[st] += 1 - w;
       m.morphTargetInfluences[next] += w;
@@ -410,10 +410,8 @@ export class DogVisual {
     this.nose.position.copy(a0.nose).lerp(a1.nose, w);
     this.nose.scale.set(P.hw * 0.1, P.hw * 0.08, P.hw * 0.12);
     // Mouth decal on the chin, facing out of the muzzle; open while running or panting.
+    // The patch itself is baked onto the muzzle and morphs with the head.
     const mo = tmpB.copy(a0.mouth).lerp(a1.mouth, w);
-    this.mouth.position.copy(mo); this.mouth.position.y += P.hw * 0.05;
-    this.mouth.quaternion.setFromUnitVectors(FWD_Z, tmpC.set(1, 0.15, 0).normalize()); // faces the high camera too
-    this.mouth.scale.set(P.hw * 0.43, P.hw * 0.3, 1);
     // Hysteresis, so the mouth doesn't flicker around the speed threshold.
     this.panting = this.speed > (this.panting ? 0.2 : 0.45) * s;
     this.still = this.panting ? 0 : (this.still ?? 0) + dt;
@@ -424,9 +422,11 @@ export class DogVisual {
     this.tongue.visible = open;
     if (open) {
       const pant = this.panting ? Math.sin(t * 14 + this.seed) * 0.08 : 0;
-      this.tongue.position.copy(mo).add(tmpC.set(P.hw * 0.035, -P.hw * 0.035, 0));
-      this.tongue.rotation.set(0, 0, -0.75 + pant);
-      this.tongue.scale.set(P.hw * 0.08, P.hw * 0.012, P.hw * 0.075);
+      // Root inside the dark mouth, hanging forward and down out of it.
+      const mn = tmpD.set(...MOUTH_N).normalize(), mv = tmpE.set(-mn.y, mn.x, 0);
+      this.tongue.position.copy(mo).addScaledVector(mv, -P.hw * 0.06).addScaledVector(mn, P.hw * 0.03);
+      this.tongue.rotation.set(0, 0, -0.85 + pant);
+      this.tongue.scale.set(P.hw * 0.09, P.hw * 0.014, P.hw * 0.09);
     }
     this.crown.visible = !!d.finished;
     this.crown.position.set(-P.hw * 0.05, P.hw * 0.52, 0);
@@ -439,9 +439,9 @@ export class DogVisual {
       const force = -bobVel * 0.9 + this.yawRate * ear.side * 0.25 * Math.min(1, norm) + (d.dashT > 0 ? -2 : 0);
       ear.v += (force - 70 * ear.a - 9 * ear.v) * dt;
       ear.a = clamp(ear.a + ear.v * dt, -0.9, 0.9);
-      ear.pivot.position.set(eAt[0] + P.hw * 0.05, eAt[1], eAt[2] * ear.side); // roots a bit forward
+      ear.pivot.position.set(eAt[0] + P.hw * 0.05, eAt[1] - P.hw * 0.04, eAt[2] * ear.side); // roots a bit forward and lower
       // Floppy ear hanging from the top of the skull side, splayed outwards; springs flap it.
-      ear.pivot.rotation.set(-ear.side * (0.2 + Math.max(0, ear.a) * 0.45), 0, -0.15 + ear.a * 0.6 + (dizzy ? 0.3 : 0));
+      ear.pivot.rotation.set(-ear.side * (0.1 + Math.max(0, ear.a) * 0.45), 0, -0.15 + ear.a * 0.6 + (dizzy ? 0.3 : 0));
       ear.mesh.position.set(0, 0, ear.side * P.hw * 0.06);
       // Framing the cheeks: tip near the lower cheek; grown-ups don't get longer ears than ~0.8 hw.
       ear.mesh.scale.set(P.hw * 0.9, Math.min(P.ed * 1.65, P.hw * 0.8), P.hw * 0.75);
