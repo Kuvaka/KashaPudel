@@ -76,6 +76,7 @@ function sharedMaterials(assets) {
   shared = {
     eye: new THREE.MeshBasicMaterial({ map: assets.eyeTex }),
     // Glossy bead eye: a real dark dome, the highlight comes from the light, not painted.
+    eyeGlint: new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95, depthWrite: false }),
     eyeBall: new THREE.MeshPhongMaterial({ color: 0x2a1408, shininess: 120, specular: 0xffffff, emissive: 0x120804 }),
     dizzy: new THREE.MeshBasicMaterial({ map: assets.dizzyTex }),
     nose: new THREE.MeshPhongMaterial({ color: 0x3a2014, shininess: 60, specular: 0x8a6a5a }),
@@ -147,8 +148,11 @@ export class DogVisual {
     // Eyes: glossy beads; the flat disc is only used for the dizzy swirl.
     this.eyes = [-1, 1].map(() => {
       const b = new THREE.Mesh(assets.eyeBall, M.eyeBall), e = new THREE.Mesh(assets.eyeGeo, M.dizzy);
-      this.head.add(b, e);
-      return { b, e };
+      const hl = new THREE.Mesh(assets.eyeGeo, M.eyeGlint);
+      // Catchlight fixed on the bead (upper front), ~20% of the eye: reads under any light.
+      hl.position.set(0, 0.42, 0.93); hl.lookAt(0, 0.9, 2.2); hl.scale.setScalar(0.22);
+      b.add(hl); this.head.add(b, e);
+      return { b, e, hl };
     });
     this.brows = [-1, 1].map(() => { const m = new THREE.Mesh(assets.ball, this.mat); this.head.add(m); return m; });
     this.nose = new THREE.Mesh(assets.noseGeo, M.nose); this.head.add(this.nose);
@@ -331,12 +335,13 @@ export class DogVisual {
     this.bodyMesh.scale.set(1 + squash, 1 + breathe - squash, 1 + squash);
 
     const tl = [lerp(a0.tail[0], a1.tail[0], w), lerp(a0.tail[1], a1.tail[1], w)];
-    this.tail.position.set(tl[0], tl[1], 0);
-    const wag = Math.sin(t * (12 + 8 * Math.min(1, norm)) + this.seed) * (0.35 + 0.35 * Math.min(1, norm)) * (down ? 0.3 : 1);
-    // Curl plane leans ~37° to the side, so the spiral reads from the high game camera too.
-    this.tail.rotation.set(-0.6 + wag, 0, 0.12, 'YXZ');
-    // Big plume curling up over the rump, like the sprites.
-    this.tailMesh.scale.setScalar(P.bw * 0.82);
+    this.tail.position.set(tl[0] + 0.1, tl[1], 0); // root sunk into the rump
+    // Gentle wag of the whole curl around its root: ±14° idle, ±23° running, ~1.6-2.2 Hz. A wider
+    // swing keeps turning the curl edge-on to the camera.
+    const wag = Math.sin(t * (10 + 4 * Math.min(1, norm)) + this.seed) * (0.25 + 0.15 * Math.min(1, norm)) * (down ? 0.3 : 1);
+    // Curl plane leans ~30° to the side, so the spiral reads from the high game camera too.
+    this.tail.rotation.set(-0.5 + wag, 0, 0.12, 'YXZ');
+    this.tailMesh.scale.setScalar(P.bw * 1.1);
 
     // --- Head ---------------------------------------------------------------------------------
     const hb = tmpA.set(lerp(a0.head.x, a1.head.x, w), lerp(a0.head.y, a1.head.y, w) - (a0.bodyY + (a1.bodyY - a0.bodyY) * w), 0);
@@ -359,14 +364,15 @@ export class DogVisual {
     this.blink = Math.max(0, this.blink - dt);
     const dizzy = !!down && this.daze > 0.3;
     for (let i = 0; i < 2; i++) {
-      const { b, e } = this.eyes[i], side = i ? 1 : -1;
+      const { b, e, hl } = this.eyes[i], side = i ? 1 : -1;
       // Bead half sunk into the face; a blink squashes it into a dark lid line.
       tmpC.set(eyeA.x, eyeA.y, eyeA.z * side).normalize();
       b.position.set(eyeA.x, eyeA.y, eyeA.z * side).addScaledVector(tmpC, eyeR * 0.05);
       b.quaternion.setFromUnitVectors(FWD_Z, tmpC);
-      b.scale.set(eyeR * 0.95, eyeR * 1.1 * (this.blink > 0 ? 0.15 : 1), eyeR * 0.75);
+      b.scale.set(eyeR * 0.95, eyeR * 1.1 * (this.blink > 0 ? 0.15 : 1), eyeR * 0.6);
       b.visible = !dizzy;
       e.visible = dizzy;
+      hl.visible = !dizzy && this.blink <= 0;
       if (dizzy) {
         e.position.copy(b.position).addScaledVector(tmpC, eyeR * 0.6);
         e.quaternion.setFromUnitVectors(FWD_Z, tmpC);
@@ -381,8 +387,8 @@ export class DogVisual {
     this.nose.scale.set(P.hw * 0.1, P.hw * 0.08, P.hw * 0.12);
     // Mouth decal on the chin, facing out of the muzzle; open while running or panting.
     const mo = tmpB.copy(a0.mouth).lerp(a1.mouth, w);
-    this.mouth.position.copy(mo);
-    this.mouth.quaternion.setFromUnitVectors(FWD_Z, tmpC.set(1, -0.55, 0).normalize());
+    this.mouth.position.copy(mo); this.mouth.position.y += P.hw * 0.05;
+    this.mouth.quaternion.setFromUnitVectors(FWD_Z, tmpC.set(1, 0.15, 0).normalize()); // faces the high camera too
     this.mouth.scale.set(P.hw * 0.36, P.hw * 0.27, 1);
     // Hysteresis, so the mouth doesn't flicker around the speed threshold.
     this.panting = this.speed > (this.panting ? 0.2 : 0.45) * s;

@@ -142,7 +142,7 @@ function bakePart(detail, shapeOf, fur, curlFreq) {
   const col = new Float32Array(n * 3), patch = new Float32Array(n);
   for (let i = 0; i < n; i++) {
     const d = dirs[i], f = fur(d, PROFILES[0]);
-    const c = (0.84 + 0.16 * smooth(0.02, 0.45, bumps[i])) * f.shade;
+    const c = (0.93 + 0.07 * smooth(0.02, 0.45, bumps[i])) * f.shade;
     col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = c;
     patch[i] = f.patch ?? 0;
   }
@@ -196,7 +196,7 @@ function bakeBlob(sdf, center, detail, freq, amp) {
     const b = curls(d.x * freq + 9, d.y * freq, d.z * freq);
     const t = rayToSurface(local, d) * (1 + amp * (b - 0.5));
     pos.setXYZ(i, c.x + d.x * t, c.y + d.y * t, c.z + d.z * t);
-    col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = 0.84 + 0.16 * smooth(0.02, 0.45, b);
+    col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = 0.93 + 0.07 * smooth(0.02, 0.45, b);
     d.toArray(od, i * 3);
   }
   g.setAttribute('color', new THREE.BufferAttribute(col, 3));
@@ -218,18 +218,23 @@ function earSdf() {
   ], 0.08);
 }
 
-// Curled plume tail in its own frame: base at the origin, rising along +y, arching forward (+x)
-// over the back and rolling ~1.15 turns inwards, so the curl's hole reads like the "@" in the
-// concept art. A swept tube: thick in the arch, tapering to a rounded tip.
+// Curled plume tail in its own frame (units ~R): base at the origin, a short riser straight up
+// out of the rump, then a ~300° curl arching forward (+x) over the back and rolling inwards.
+// Under a full turn, so the coil never covers itself and the hole stays open like the "@" in the
+// concept art. A swept tube: fullest in the arch, tapering to a capped tip.
 function bakeTailTube() {
   const SEG = 72, RAD = 12, CAP = 4;
-  const C = [0.12, 0.55], th0 = Math.atan2(-C[1], -C[0]), turn = 414 * Math.PI / 180;
-  const rho0 = Math.hypot(C[0], C[1]);
+  const RISE = 0.26, rho0 = 0.3, rho1 = 0.15, turn = 300 * Math.PI / 180, split = 0.2;
+  const C = [rho0, RISE]; // curl centre: the riser top sits on its left, heading up
   const curve = (t) => {
-    const th = th0 - turn * t, rho = rho0 * (1 - 0.75 * t);
-    return new THREE.Vector3(C[0] + Math.cos(th) * rho, C[1] + Math.sin(th) * rho, 0.06 * Math.sin(Math.PI * t));
+    if (t < split) { // riser: leans a little back, then straight up into the curl
+      const u = t / split;
+      return new THREE.Vector3(-0.04 * Math.sin(Math.PI * u) ** 2, RISE * u, 0);
+    }
+    const u = (t - split) / (1 - split), th = Math.PI - turn * u, rho = rho0 + (rho1 - rho0) * smooth(0, 1, u);
+    return new THREE.Vector3(C[0] + Math.cos(th) * rho, C[1] + Math.sin(th) * rho, 0.04 * Math.sin(Math.PI * u));
   };
-  const radius = (t) => t < 0.32 ? 0.17 + 0.15 * smooth(0, 0.32, t) : 0.32 - 0.21 * smooth(0.32, 1, t);
+  const radius = (t) => t < 0.35 ? 0.12 + 0.07 * smooth(0, 0.35, t) : 0.19 - 0.12 * smooth(0.35, 1, t);
   const pos = [], col = [], od = [], idx = [];
   const Z = new THREE.Vector3(0, 0, 1), T = new THREE.Vector3(), N = new THREE.Vector3(), B = new THREE.Vector3();
   const v = new THREE.Vector3(), nrm = new THREE.Vector3();
@@ -241,7 +246,7 @@ function bakeTailTube() {
       const bmp = curls(v.x * 4 + 7, v.y * 4, v.z * 4);
       v.copy(P).addScaledVector(nrm, r * (1 + 0.12 * (bmp - 0.5)));
       pos.push(v.x, v.y, v.z);
-      const sh = 0.84 + 0.16 * smooth(0.02, 0.45, bmp);
+      const sh = 0.93 + 0.07 * smooth(0.02, 0.45, bmp);
       col.push(sh, sh, sh);
       od.push(v.x * 1.2 + nrm.x * 0.3, v.y * 1.2 + nrm.y * 0.3, v.z * 1.2 + nrm.z * 0.3); // curl-stroke coords
     }
@@ -263,6 +268,18 @@ function bakeTailTube() {
     const a = i * RAD + j, b = i * RAD + (j + 1) % RAD, c = a + RAD, d = b + RAD;
     idx.push(a, b, c, b, d, c);
   }
+  // Closed ends: a fan to one vertex at the tip and one at the (hidden) root.
+  const cap = (centre, first, flip) => {
+    const k = pos.length / 3;
+    pos.push(centre.x, centre.y, centre.z); col.push(0.93, 0.93, 0.93); od.push(centre.x * 1.2, centre.y * 1.2, centre.z * 1.2);
+    for (let j = 0; j < RAD; j++) {
+      const a = first + j, b = first + (j + 1) % RAD;
+      flip ? idx.push(a, k, b) : idx.push(a, b, k);
+    }
+  };
+  cap(tip.clone().addScaledVector(T, rt), (rings - 1) * RAD, false);
+  frame(0);
+  cap(curve(0).addScaledVector(T, -radius(0) * 0.5), 0, true);
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
@@ -360,7 +377,7 @@ export function anchorsOf(P) {
     eye: onHead(EYE_DIR[0], EYE_DIR[1], EYE_DIR[2], 0), // head-local, right eye (z mirrored)
     nose: onHead(1, -0.17, 0, -0.01),
     mouth: onHead(1, -0.36, 0, 0.004),
-    brow: onHead(EYE_DIR[0] * 0.85, EYE_DIR[1] + 0.36, EYE_DIR[2] * 1.1, -0.02),
+    brow: onHead(EYE_DIR[0] * 0.85, EYE_DIR[1] + 0.44, EYE_DIR[2] * 1.1, -0.02),
     ear: onHead(-0.05, 0.7, 0.72, -0.03).toArray(), // head-local attach high on the skull side
   };
 }
@@ -375,9 +392,9 @@ export function buildDogAssets() {
     const eye = smooth(0.93, 0.985, Math.max(d.dot(eyeDir), d.x * eyeDir.x + d.y * eyeDir.y - d.z * eyeDir.z));
     const nose = smooth(0.95, 0.99, d.dot(noseDir));
     const patch = smooth(0.42, 0.8, d.x) * smooth(0.12, -0.2, d.y);
-    return { amp: 0.06 * P.hw * (1 - 0.85 * Math.max(eye, nose) - 0.3 * patch), shade: 1, patch };
+    return { amp: 0.04 * P.hw * (1 - 0.85 * Math.max(eye, nose) - 0.3 * patch), shade: 1, patch };
   }, 3.2);
-  const body = bakePart(16, bodySdf, (d) => ({ amp: 0.07, shade: 1,
+  const body = bakePart(16, bodySdf, (d) => ({ amp: 0.04, shade: 1,
     patch: smooth(0.35, 0.8, d.x) * smooth(0.25, -0.25, d.y) }), 2.9);
   const limb = bakeLimb();
   const ball = bakeFluffBall(5, 2.2, 0.16);
