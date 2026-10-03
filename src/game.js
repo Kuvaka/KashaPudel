@@ -23,6 +23,17 @@ export function stageProgress(xp) {
   return (xp - STAGES[s].xp) / (STAGES[s + 1].xp - STAGES[s].xp);
 }
 
+// Visual phases of a knock-down, spread over the actual stun time: a short stun (small dog
+// shoving a big one) still gets a complete, shortened tumble and get-up.
+export function stunPhase(d) {
+  const T = d.stunMax, scale = Math.min(1, 0.85 * T / (SH.fallSec + SH.getUpSec));
+  const F = SH.fallSec * scale, U = SH.getUpSec * scale, S = Math.max(1e-6, T - F - U);
+  const el = T - d.stun;
+  if (el < F) return { phase: 'fall', k: el / F };
+  if (d.stun < U) return { phase: 'up', k: 1 - d.stun / U };
+  return { phase: 'sit', k: Math.min(1, (el - F) / S) };
+}
+
 function radiusFor(xp) {
   const s = stageOf(xp);
   if (s === LAST) return STAGES[s].r;

@@ -1,14 +1,8 @@
 import { CONFIG } from './config.js';
 import { SPRITE_R } from './art.js';
+import { stunPhase } from './game.js';
 
-const { world: W, camera: CAM, dog: D, shove: SH } = CONFIG;
-// Which part of the knock-down a dog is in, and progress k (0..1) through it.
-function stunPhase(d) {
-  const el = d.stunMax - d.stun;
-  if (el < SH.fallSec) return { phase: 'fall', k: el / SH.fallSec };
-  if (d.stun < SH.getUpSec) return { phase: 'up', k: 1 - d.stun / SH.getUpSec };
-  return { phase: 'sit', k: 0 };
-}
+const { world: W, camera: CAM, dog: D } = CONFIG;
 
 function drawSwirl(ctx, x, y, R, spin) {
   if (R < 1) return;
