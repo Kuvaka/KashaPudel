@@ -39,7 +39,7 @@ const LEGS = [
 const tmpM = new THREE.Matrix4();
 const fxDir = new THREE.Vector3(), fxPos = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0), FWD_Z = new THREE.Vector3(0, 0, 1);
-const tmpA = new THREE.Vector3(), tmpB = new THREE.Vector3(), tmpC = new THREE.Vector3();
+const tmpA = new THREE.Vector3(), tmpB = new THREE.Vector3(), tmpC = new THREE.Vector3(), tmpD = new THREE.Vector3();
 
 function mixProfile(a, b, t) {
   const o = {};
@@ -75,6 +75,8 @@ function sharedMaterials(assets) {
   if (shared) return shared;
   shared = {
     eye: new THREE.MeshBasicMaterial({ map: assets.eyeTex }),
+    // Glossy bead eye: a real dark dome, the highlight comes from the light, not painted.
+    eyeBall: new THREE.MeshPhongMaterial({ color: 0x2a1408, shininess: 120, specular: 0xffffff, emissive: 0x120804 }),
     dizzy: new THREE.MeshBasicMaterial({ map: assets.dizzyTex }),
     nose: new THREE.MeshPhongMaterial({ color: 0x3a2014, shininess: 60, specular: 0x8a6a5a }),
     shadow: new THREE.MeshBasicMaterial({ map: blobTexture(), transparent: true, depthWrite: false }),
@@ -142,7 +144,13 @@ export class DogVisual {
 
     this.head = new THREE.Group(); pose.add(this.head);
     this.headMesh = new THREE.Mesh(assets.head, this.mat); this.head.add(this.headMesh);
-    this.eyes = [-1, 1].map(() => { const e = new THREE.Mesh(assets.eyeGeo, M.eye); this.head.add(e); return e; });
+    // Eyes: glossy beads; the flat disc is only used for the dizzy swirl.
+    this.eyes = [-1, 1].map(() => {
+      const b = new THREE.Mesh(assets.eyeBall, M.eyeBall), e = new THREE.Mesh(assets.eyeGeo, M.dizzy);
+      this.head.add(b, e);
+      return { b, e };
+    });
+    this.brows = [-1, 1].map(() => { const m = new THREE.Mesh(assets.ball, this.mat); this.head.add(m); return m; });
     this.nose = new THREE.Mesh(assets.noseGeo, M.nose); this.head.add(this.nose);
     this.ears = [-1, 1].map((side) => {
       const pivot = new THREE.Group(), m = new THREE.Mesh(assets.ear, this.earMat);
@@ -344,24 +352,33 @@ export class DogVisual {
 
     // Eyes, nose, crown follow the head morph.
     const eyeA = tmpB.copy(a0.eye).lerp(a1.eye, w);
-    const eyeR = P.hw * lerp(0.17, 0.15, (st + w) / LAST);
+    const eyeR = P.hw * lerp(0.135, 0.12, (st + w) / LAST);
+    const browA = tmpD.copy(a0.brow).lerp(a1.brow, w);
     this.blinkT -= dt;
     if (this.blinkT < 0) { this.blink = 0.13; this.blinkT = 2 + Math.random() * 4; }
     this.blink = Math.max(0, this.blink - dt);
     const dizzy = !!down && this.daze > 0.3;
     for (let i = 0; i < 2; i++) {
-      const e = this.eyes[i], side = i ? 1 : -1;
-      // Both eyes look forward (towards the viewer in 3/4), not out of the sides of the head;
-      // pushed out a little so the disc rim doesn't sink into the fur.
-      tmpC.set(1, 0.12, 0.42 * side).normalize();
-      e.position.set(eyeA.x, eyeA.y, eyeA.z * side).addScaledVector(tmpC, eyeR * 0.3);
-      e.quaternion.setFromUnitVectors(FWD_Z, tmpC);
-      e.scale.set(eyeR * 0.92, eyeR * 1.08 * (this.blink > 0 && !dizzy ? 0.12 : 1), 1);
-      e.material = dizzy ? shared.dizzy : shared.eye;
-      if (dizzy) e.rotateZ(t * 9 * side + this.seed);
+      const { b, e } = this.eyes[i], side = i ? 1 : -1;
+      // Bead half sunk into the face; a blink squashes it into a dark lid line.
+      tmpC.set(eyeA.x, eyeA.y, eyeA.z * side).normalize();
+      b.position.set(eyeA.x, eyeA.y, eyeA.z * side).addScaledVector(tmpC, eyeR * 0.05);
+      b.quaternion.setFromUnitVectors(FWD_Z, tmpC);
+      b.scale.set(eyeR * 0.95, eyeR * 1.1 * (this.blink > 0 ? 0.15 : 1), eyeR * 0.75);
+      b.visible = !dizzy;
+      e.visible = dizzy;
+      if (dizzy) {
+        e.position.copy(b.position).addScaledVector(tmpC, eyeR * 0.6);
+        e.quaternion.setFromUnitVectors(FWD_Z, tmpC);
+        e.scale.set(eyeR * 1.2, eyeR * 1.2, 1);
+        e.rotateZ(t * 9 * side + this.seed);
+      }
+      // Fluffy brow tuft over each eye: frames it like the curls in the concept.
+      this.brows[i].position.set(browA.x, browA.y, browA.z * side);
+      this.brows[i].scale.set(P.hw * 0.11, P.hw * 0.08, P.hw * 0.12);
     }
     this.nose.position.copy(a0.nose).lerp(a1.nose, w);
-    this.nose.scale.set(P.hw * 0.075, P.hw * 0.065, P.hw * 0.095);
+    this.nose.scale.set(P.hw * 0.1, P.hw * 0.08, P.hw * 0.12);
     // Mouth decal on the chin, facing out of the muzzle; open while running or panting.
     const mo = tmpB.copy(a0.mouth).lerp(a1.mouth, w);
     this.mouth.position.copy(mo);

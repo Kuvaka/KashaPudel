@@ -17,7 +17,11 @@ export const PROFILES = [
   { hw: 1.1, bl: 1.68, bw: 1.07, sh: 0.75, mz: 0.24, ed: 0.64, leg: 0.2 },
 ];
 
-const clamp01 = (x) => Math.min(1, Math.max(0, x));
+// Where the right eye sits on the head (direction from the skull centre): forward, low and
+// close to the snout, like a dog; wide-set high eyes read as a squirrel.
+export const EYE_DIR = [0.86, 0.02, 0.38];
+
+const clamp01 =(x) => Math.min(1, Math.max(0, x));
 const smooth = (e0, e1, x) => { const t = clamp01((x - e0) / (e1 - e0)); return t * t * (3 - 2 * t); };
 
 // --- SDF primitives -------------------------------------------------------------------------
@@ -48,7 +52,11 @@ function headSdf(P) {
     [[-h * 0.06, h * 0.16, 0], [h * 0.4, h * 0.3, h * 0.44]],              // round crown, no top-knot
     [[h * 0.14, -h * 0.12, h * 0.22], [h * 0.26, h * 0.24, h * 0.24]],        // cheeks
     [[h * 0.14, -h * 0.12, -h * 0.22], [h * 0.26, h * 0.24, h * 0.24]],
-    [[h * 0.36 + P.mz * 0.5, -h * 0.12, 0], [P.mz * 0.6 + h * 0.12, h * 0.17, h * 0.2]], // muzzle
+    // Muzzle: a real snout block sticking out of the face (a dog, not a rodent), wide moustache
+    // puffs on both sides of it and a soft chin.
+    [[h * 0.4 + P.mz * 0.6, -h * 0.13, 0], [P.mz * 0.7 + h * 0.16, h * 0.17, h * 0.17]],
+    [[h * 0.42 + P.mz * 0.4, -h * 0.2, h * 0.1], [P.mz * 0.5 + h * 0.13, h * 0.15, h * 0.14]],
+    [[h * 0.42 + P.mz * 0.4, -h * 0.2, -h * 0.1], [P.mz * 0.5 + h * 0.13, h * 0.15, h * 0.14]],
   ], h * 0.12);
 }
 
@@ -349,9 +357,10 @@ export function anchorsOf(P) {
     shoulder: [P.bl * 0.28, P.sh, P.bw * 0.27],     // z mirrored for left/right
     hip: [-P.bl * 0.3, P.sh * 0.98, P.bw * 0.27],
     tail: [-P.bl * 0.5, P.bw * 0.32],               // body-local x, y
-    eye: onHead(0.8, 0.04, 0.5, 0.0),               // head-local, right eye (z mirrored)
-    nose: onHead(1, -0.18, 0, -0.02),
-    mouth: onHead(1, -0.42, 0, 0.004),
+    eye: onHead(EYE_DIR[0], EYE_DIR[1], EYE_DIR[2], 0), // head-local, right eye (z mirrored)
+    nose: onHead(1, -0.17, 0, -0.01),
+    mouth: onHead(1, -0.36, 0, 0.004),
+    brow: onHead(EYE_DIR[0] * 0.85, EYE_DIR[1] + 0.36, EYE_DIR[2] * 1.1, -0.02),
     ear: onHead(-0.05, 0.7, 0.72, -0.03).toArray(), // head-local attach high on the skull side
   };
 }
@@ -360,10 +369,13 @@ export function anchorsOf(P) {
 export function buildDogAssets() {
   const t0 = performance.now();
   // Curl lobes: few and big, so the toon light turns each into a flat "cloud" like the sprite.
+  // Curly face like the concept: only small smooth sockets around the eyes and the nose tip.
+  const eyeDir = new THREE.Vector3(...EYE_DIR).normalize(), noseDir = new THREE.Vector3(1, -0.17, 0).normalize();
   const head = bakePart(18, headSdf, (d, P) => {
-    const face = smooth(0.4, 0.75, d.x) * smooth(-0.7, 0.35, d.y); // smooth face: eyes, muzzle
+    const eye = smooth(0.93, 0.985, Math.max(d.dot(eyeDir), d.x * eyeDir.x + d.y * eyeDir.y - d.z * eyeDir.z));
+    const nose = smooth(0.95, 0.99, d.dot(noseDir));
     const patch = smooth(0.42, 0.8, d.x) * smooth(0.12, -0.2, d.y);
-    return { amp: 0.06 * P.hw * (1 - 0.9 * face), shade: 1, patch };
+    return { amp: 0.06 * P.hw * (1 - 0.85 * Math.max(eye, nose) - 0.3 * patch), shade: 1, patch };
   }, 3.2);
   const body = bakePart(16, bodySdf, (d) => ({ amp: 0.07, shade: 1,
     patch: smooth(0.35, 0.8, d.x) * smooth(0.25, -0.25, d.y) }), 2.9);
@@ -376,6 +388,7 @@ export function buildDogAssets() {
   return {
     head, body, limb, ball, ear, tail, anchors,
     eyeGeo: new THREE.CircleGeometry(1, 24),
+    eyeBall: new THREE.SphereGeometry(1, 20, 14),
     noseGeo: new THREE.SphereGeometry(1, 16, 12),
     eyeTex: eyeTexture(false), dizzyTex: eyeTexture(true),
     mouthOpen: mouthTexture(true), mouthClosed: mouthTexture(false),
