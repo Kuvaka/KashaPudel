@@ -77,7 +77,7 @@ export class Game {
     this.dogs = [this.player];
     const names = [...B.names].sort(() => Math.random() - 0.5);
     for (let i = 0; i < B.count; i++) {
-      const skill = B.skillMin + (B.skillMax - B.skillMin) * (i / Math.max(1, B.count - 1));
+      const skill = B.skills?.[i] ?? (B.skillMin + (B.skillMax - B.skillMin) * (i / Math.max(1, B.count - 1)));
       this.dogs.push(makeDog(names[i % names.length], false, ...spot(i + 1), skill));
     }
     for (let i = 0; i < F.count; i++) this.food.push(makeFood(...this.foodSpot()));
@@ -176,6 +176,7 @@ export class Game {
           d.eaten++;
           this.gainXp(d, f.type.xp);
           this.events.onEat?.(d, f);
+          if (d.finished) break;
         }
       }
     }
@@ -184,34 +185,41 @@ export class Game {
   // Dogs jostle: overlap is resolved by weight, the bigger dog moves less. A dash into a rival
   // (or a much bigger dog running into a small one) shoves it away.
   collideDogs() {
-    const dogs = this.dogs;
+    const dogs = this.dogs.filter(d => !d.finished && d.immune <= 0);
     for (let i = 0; i < dogs.length; i++) {
       for (let j = i + 1; j < dogs.length; j++) {
         const a = dogs[i], b = dogs[j];
+        if (a.immune > 0 || b.immune > 0) continue;
         const dx = b.x - a.x, dy = b.y - a.y;
-        const dist = Math.hypot(dx, dy) || 0.001;
+        const dist = Math.hypot(dx, dy);
         const overlap = (a.r + b.r) * 0.85 - dist;
         if (overlap <= 0) continue;
-        const ma = a.r * a.r, mb = b.r * b.r, nx = dx / dist, ny = dy / dist;
+        const ma = a.r * a.r, mb = b.r * b.r;
+        const nx = dist > 1e-6 ? dx / dist : 1, ny = dist > 1e-6 ? dy / dist : 0;
         a.x -= nx * overlap * mb / (ma + mb); a.y -= ny * overlap * mb / (ma + mb);
         b.x += nx * overlap * ma / (ma + mb); b.y += ny * overlap * ma / (ma + mb);
         // Approach speeds along the contact normal.
         const aIn = a.vx * nx + a.vy * ny, bIn = -(b.vx * nx + b.vy * ny);
+        if (aIn + bIn <= 20) continue; // No shove while co-moving or separating.
         if (aIn >= bIn) this.tryShove(a, b, aIn, nx, ny);
         else this.tryShove(b, a, bIn, -nx, -ny);
       }
     }
+    for (const d of dogs) {
+      d.x = clamp(d.x, d.r, W.w - d.r);
+      d.y = clamp(d.y, d.r, W.h - d.r);
+    }
   }
 
   tryShove(att, vic, approach, nx, ny) {
-    if (this.time < RACE.shoveGraceSec || att.shoveCd > 0 || vic.stun > 0 || vic.immune > 0 || att.stun > 0 || att.finished || vic.finished) return;
+    if (this.time < RACE.shoveGraceSec || att.shoveCd > 0 || att.immune > 0 || vic.stun > 0 || vic.immune > 0 || att.stun > 0 || att.finished || vic.finished) return;
     const dash = att.dashT > 0 && approach > SH.dashMinSpeed;
-    const big = att.r > vic.r * SH.bigRatio && approach > SH.bigMinSpeed;
+    const big = SH.bodyShove !== false && att.r > vic.r * SH.bigRatio && approach > SH.bigMinSpeed;
     if (!dash && !big) return;
     const ma = att.r * att.r, mv = vic.r * vic.r;
     const f = (2 * ma / (ma + mv)) * (dash ? 1 : 0.6); // 1 for equal dogs, up to ~2 for big ones
     vic.vx = nx * SH.power * f; vic.vy = ny * SH.power * f;
-    vic.stun = SH.stunSec * Math.min(1.6, f);
+    vic.stun = Math.min(SH.maxStunSec ?? Infinity, SH.stunSec * Math.min(1.6, f));
     vic.immune = vic.stun + SH.immuneSec;
     vic.dashT = 0;
     vic.target = null;
@@ -268,14 +276,15 @@ export class Game {
     // A rival is about to take my cookie: go shove it (only when the dash is ready).
     if (target && d.dashCd === 0 && Math.random() < B.aggression * d.skill) {
       const myDist = Math.hypot(target.x - d.x, target.y - d.y);
+      let rival = null, nearest = Infinity;
       for (const o of this.dogs) {
         if (o === d || o.finished || o.stun > 0 || o.immune > 0) continue;
         const od = Math.hypot(o.x - d.x, o.y - d.y);
         if (od < 220 && Math.hypot(target.x - o.x, target.y - o.y) < myDist && o.r < d.r * 1.3) {
-          d.rival = o; d.rivalT = 0.7;
-          return;
+          if (od < nearest) { nearest = od; rival = o; }
         }
       }
+      if (rival) { d.rival = rival; d.rivalT = 0.7; return; }
     }
 
     let fx, fy;

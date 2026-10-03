@@ -25,6 +25,7 @@ export class Input {
     const end = (e) => { if (this.stick && e.pointerId === this.stick.id) this.stick = null; };
     el.addEventListener('pointerup', end);
     el.addEventListener('pointercancel', end);
+    el.addEventListener('lostpointercapture', end);
     el.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') this.mouse = null; });
     el.addEventListener('mousedown', () => { this.mouseDash = true; });
     window.addEventListener('mouseup', () => { this.mouseDash = false; });
@@ -36,7 +37,10 @@ export class Input {
     dashBtn.addEventListener('pointercancel', release);
     dashBtn.addEventListener('pointerleave', release);
 
-    window.addEventListener('keydown', (e) => this.keys.add(e.code));
+    window.addEventListener('keydown', (e) => {
+      if (!this.enabled || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target?.tagName) || e.target?.isContentEditable) return;
+      this.keys.add(e.code);
+    });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
     this.releaseDash = release;
     window.addEventListener('blur', () => this.reset());
@@ -54,7 +58,7 @@ export class Input {
     if (this.stick) {
       const dx = this.stick.x - this.stick.ox, dy = this.stick.y - this.stick.oy;
       const len = Math.hypot(dx, dy);
-      if (len > DEAD_ZONE) { x = dx / len; y = dy / len; mag = Math.min(1, len / STICK_R); }
+      if (len > DEAD_ZONE) { x = dx / len; y = dy / len; mag = Math.min(1, (len - DEAD_ZONE) / (STICK_R - DEAD_ZONE)); }
     } else {
       const k = this.keys;
       const kx = (k.has('KeyD') || k.has('ArrowRight')) - (k.has('KeyA') || k.has('ArrowLeft'));

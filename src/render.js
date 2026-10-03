@@ -2,6 +2,11 @@ import { CONFIG } from './config.js';
 import { SPRITE_R } from './art.js';
 
 const { world: W, camera: CAM, dog: D } = CONFIG;
+let visualSeed = 0x91e10da5;
+function visualRandom() {
+  visualSeed ^= visualSeed << 13; visualSeed ^= visualSeed >>> 17; visualSeed ^= visualSeed << 5;
+  return (visualSeed >>> 0) / 4294967296;
+}
 
 export class Renderer {
   constructor(canvas, art) {
@@ -33,8 +38,8 @@ export class Renderer {
 
   burst(x, y, color, n = 6, speed = 120) {
     for (let i = 0; i < n; i++) {
-      const a = Math.random() * Math.PI * 2, s = speed * (0.4 + Math.random());
-      this.particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 0.5, max: 0.5, color, size: 3 + Math.random() * 3 });
+      const a = visualRandom() * Math.PI * 2, s = speed * (0.4 + visualRandom());
+      this.particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 0.5, max: 0.5, color, size: 3 + visualRandom() * 3 });
     }
   }
 
@@ -49,6 +54,7 @@ export class Renderer {
     const k = 1 - Math.exp(-CAM.follow * dt);
     cam.x += (pr - cam.x) * k; cam.y += (pyr - cam.y) * k;
     cam.scale += (this.targetScale(p.drawR) - cam.scale) * (1 - Math.exp(-2 * dt));
+    if (!(cam.scale > 0)) cam.scale = this.targetScale(p.drawR); // snapped before the canvas had a size
 
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.fillStyle = '#4f8a35';
@@ -87,7 +93,7 @@ export class Renderer {
 
     // Dogs, back to front
     const dogs = game.dogs.filter((d) => visible(d.x, d.y)).sort((a, b) => a.y - b.y);
-    for (const d of dogs) this.drawDog(d, alpha, t);
+    for (const d of dogs) this.drawDog(d, alpha, t, dt);
     for (const d of dogs) this.drawName(d, alpha);
 
     // Particles and floating text (world space)
@@ -95,7 +101,7 @@ export class Renderer {
       const q = this.particles[i];
       q.life -= dt;
       if (q.life <= 0) { this.particles.splice(i, 1); continue; }
-      q.x += q.vx * dt; q.y += q.vy * dt; q.vx *= 0.92; q.vy *= 0.92;
+      q.x += q.vx * dt; q.y += q.vy * dt; q.vx *= Math.pow(0.92, dt * 60); q.vy *= Math.pow(0.92, dt * 60);
       ctx.globalAlpha = q.life / q.max;
       ctx.fillStyle = q.color;
       ctx.beginPath(); ctx.arc(q.x, q.y, q.size, 0, Math.PI * 2); ctx.fill();
@@ -119,7 +125,7 @@ export class Renderer {
     if (stick) this.drawStick(stick);
   }
 
-  drawDog(d, alpha, t) {
+  drawDog(d, alpha, t, dt) {
     const { ctx } = this;
     const x = lerp(d.px, d.x, alpha), y = lerp(d.py, d.y, alpha);
     const speed = Math.hypot(d.vx, d.vy);
@@ -137,6 +143,10 @@ export class Renderer {
       ctx.beginPath(); ctx.ellipse(x, y + r * 0.75, r * 1.2, r * 0.46, 0, 0, Math.PI * 2); ctx.stroke();
     }
 
+    if (d.immune > 0 && !d.stun) {
+      ctx.strokeStyle = 'rgba(180,245,255,0.8)'; ctx.lineWidth = Math.max(2, r * 0.08);
+      ctx.beginPath(); ctx.ellipse(x, y + r * 0.75, r * 1.3, r * 0.55, 0, 0, Math.PI * 2); ctx.stroke();
+    }
     const sprite = this.art.dogs[d.stage];
     const dizzy = d.stun > 0 ? Math.sin(t * 30) * 0.3 * Math.min(1, d.stun * 3) : 0;
     ctx.save();
@@ -163,7 +173,7 @@ export class Renderer {
       }
     }
 
-    if (d.dashT > 0 && speed > 200 && Math.random() < 0.5) {
+    if (d.dashT > 0 && speed > 200 && visualRandom() < Math.min(1, 30 * dt)) {
       this.particles.push({ x: x - d.face * r, y: y + r * 0.6, vx: -d.vx * 0.2, vy: -20, life: 0.4, max: 0.4, color: 'rgba(255,255,255,0.8)', size: r * 0.18 });
     }
   }

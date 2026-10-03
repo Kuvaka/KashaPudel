@@ -17,7 +17,7 @@ export function unlock() {
     if (!Ctx) return;
     ac = new Ctx();
   }
-  if (ac.state === 'suspended') ac.resume();
+  if (ac.state === 'suspended' || ac.state === 'interrupted') ac.resume().catch(() => {});
 }
 
 function tone(freq, dur, type = 'sine', vol = 0.15, slide = 0, when = 0) {
@@ -38,7 +38,7 @@ export const sfx = {
     const now = performance.now();
     if (now - lastChomp < 45) return;
     lastChomp = now;
-    tone(big ? 520 : 700 + Math.random() * 120, 0.08, 'triangle', 0.12, -250);
+    tone(big ? 520 : 700 + (0.5 + 0.5 * Math.sin(now * 0.01)) * 120, 0.08, 'triangle', 0.12, -250);
   },
   levelUp() { [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.16, 'square', 0.07, 0, i * 0.08)); },
   boing() { tone(220, 0.25, 'sine', 0.18, 300); tone(140, 0.12, 'triangle', 0.1, -60); },

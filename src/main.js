@@ -14,6 +14,16 @@ const art = await loadArt();
 const renderer = new Renderer(canvas, art);
 const input = new Input(canvas, $('dash'));
 let screen = 'start';
+let paused = false;
+const pauseOverlay = document.createElement('div');
+pauseOverlay.className = 'screen hidden';
+pauseOverlay.innerHTML = '<div class="panel"><h2>Пауза</h2><button class="big">Продолжить</button></div>';
+document.body.append(pauseOverlay);
+pauseOverlay.querySelector('button').addEventListener('click', () => {
+  unlock(); input.reset(); acc = 0; last = performance.now();
+  paused = false; input.enabled = screen === null;
+  pauseOverlay.classList.add('hidden');
+});
 
 const game = new Game({
   onEat(d, f) {
@@ -39,7 +49,7 @@ const game = new Game({
     setTimeout(showFinish, 1400);
   },
   onShove(att, vic) {
-    if (!att.isPlayer && !vic.isPlayer) return;
+    if (screen !== null || (!att.isPlayer && !vic.isPlayer)) return;
     renderer.burst((att.x + vic.x) / 2, (att.y + vic.y) / 2, '#ffffff', 12, 200);
     sfx.boing();
     if (vic.isPlayer) showToast(`💥 ${att.name} толкает тебя!`);
@@ -89,12 +99,19 @@ function showFinish() {
 
 function show(name) {
   screen = name;
+  input.reset();
+  paused = false; pauseOverlay.classList.add('hidden');
   for (const id of ['start', 'finish']) $(id).classList.toggle('hidden', id !== name);
   $('hud').classList.toggle('hidden', name !== null);
   input.enabled = name === null;
 }
 
 function begin() {
+  document.activeElement?.blur();
+  input.reset();
+  clearTimeout(toastTimer); $('toast').classList.remove('show');
+  renderer.particles.length = 0; renderer.texts.length = 0;
+  acc = 0; last = performance.now();
   unlock();
   const name = $('name').value.trim().slice(0, 12);
   try { localStorage.setItem('kf_name', name); } catch {}
@@ -110,20 +127,24 @@ try { savedName = localStorage.getItem('kf_name'); } catch {}
 $('name').value = savedName || CONFIG.gift.defaultName;
 $('play').addEventListener('click', begin);
 $('again').addEventListener('click', begin);
-$('name').addEventListener('keydown', (e) => { if (e.key === 'Enter') begin(); });
+$('name').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.repeat && screen === 'start') { e.preventDefault(); begin(); } });
 
 const muteBtn = $('mute');
 const syncMute = () => { muteBtn.textContent = isMuted() ? '🔇' : '🔊'; };
-muteBtn.addEventListener('click', () => { setMuted(!isMuted()); syncMute(); });
+muteBtn.addEventListener('click', () => { setMuted(!isMuted()); if (!isMuted()) unlock(); syncMute(); });
 syncMute();
 
 // In the background iOS throttles timers; on return, don't fast-forward the race and
 // don't keep a stick or dash "held" from before.
-document.addEventListener('visibilitychange', () => {
-  input.reset();
-  acc = 0;
-  last = performance.now();
-});
+function suspendRace() {
+  input.reset(); acc = 0; last = performance.now();
+  if (screen === null && !game.player.finished) {
+    paused = true; input.enabled = false;
+    pauseOverlay.classList.remove('hidden');
+  }
+}
+document.addEventListener('visibilitychange', () => { if (document.hidden) suspendRace(); });
+window.addEventListener('blur', suspendRace);
 
 function onResize() { refreshSafeArea(); renderer.resize(); }
 window.addEventListener('resize', onResize);
@@ -169,7 +190,13 @@ renderer.snapCamera(game.player);
 show('start');
 
 function frame(now) {
-  const dt = Math.min(0.25, (now - last) / 1000);
+  if (document.hidden || paused) {
+    last = now; acc = 0;
+    // Keep the frozen field drawn behind the pause card (a rotation clears the canvas).
+    if (paused) renderer.draw(game, 1, 0, null, true);
+    requestAnimationFrame(frame); return;
+  }
+  const dt = Math.min(4 * STEP, Math.max(0, (now - last) / 1000));
   last = now;
   if (input.enabled && game.racing) {
     const i = input.read(renderer.vw, renderer.vh);

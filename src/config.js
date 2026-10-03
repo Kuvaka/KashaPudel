@@ -43,13 +43,14 @@ export const CONFIG = {
 
   bots: {
     count: 8,
+    skills: [0.38, 0.42, 0.46, 0.50, 0.54, 0.58, 0.90, 1.0],
     thinkSec: 0.25,
     senseRange: 380,
     speedMul: 0.92,       // bots are a bit slower than the player
     skillMin: 0.55,       // skill spreads bots from dreamy to sharp
     skillMax: 1.0,
     focus: 0.95,          // chance per think to actually pick a target, times skill
-    aggression: 0.35,     // chance (times skill) to dash-shove a rival that is closer to the bot's cookie
+    aggression: 0.20,     // chance (times skill) to dash-shove a rival that is closer to the bot's cookie
     names: ['Бусинка', 'Пончик', 'Ириска', 'Зефир', 'Кекс', 'Плюша', 'Бублик',
             'Мася', 'Тоффи', 'Персик', 'Кнопка', 'Бисквит', 'Ватрушка'],
   },
@@ -57,15 +58,17 @@ export const CONFIG = {
   // Shoves: a dashing dog (or a much bigger running one) knocks a rival back; the rival spins
   // for a moment and can't eat. No XP is lost.
   shove: {
+    bodyShove: false,
+    maxStunSec: 0.55,
     dashMinSpeed: 200,    // approach speed needed for a dash shove
     bigRatio: 1.25,       // ...or the attacker is this much bigger
     bigMinSpeed: 120,     // ...and approaches at least this fast
-    power: 560,           // knockback speed for equal-sized dogs
-    stunSec: 0.75,        // spin time for equal-sized dogs
-    cooldown: 0.6,        // attacker can't shove again for this long
-    immuneSec: 1.5,       // a shoved dog can't be shoved again for this long after the spin
+    power: 360,           // knockback speed for equal-sized dogs
+    stunSec: 0.45,        // spin time for equal-sized dogs
+    cooldown: 1.2,        // attacker can't shove again for this long
+    immuneSec: 2.5,       // a shoved dog can't be shoved again for this long after the spin
     recoil: 0.3,          // attacker keeps this share of its speed
-    friction: 3.2,        // knocked-back slide decay, 1/s
+    friction: 4.0,        // knocked-back slide decay, 1/s
   },
 
   race: {
