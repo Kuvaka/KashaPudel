@@ -70,25 +70,35 @@ function blobTexture() {
   return new THREE.CanvasTexture(c);
 }
 
-// Shallow glossy eye: soft warm Phong sheen plus one catchlight computed in view space, so it
-// always sits on the visible upper side of the eye and is hidden by the head like real shading.
+// Cartoon eye like the concept: a dark dome with a warm iris that is lighter at the bottom, a
+// soft pupil and a dark lid rim, all in the eye's own frame (+z looks out) so they turn with the
+// head; round catchlights in screen space (a big upper one, a faint small lower one), always
+// round but hidden by the head like the dome itself. No specular sheen: it read as a wet bulge.
 function eyeMaterial() {
-  const m = new THREE.MeshPhongMaterial({ color: 0x24160f, shininess: 60, specular: 0xbfaf9d, emissive: 0x100804 });
+  const m = new THREE.MeshPhongMaterial({ color: 0x24160f, shininess: 20, specular: 0x000000, emissive: 0x100804 });
   m.onBeforeCompile = (sh) => {
-    // Warm brown iris around a dark pupil, in the eye's own frame (+z looks out), so it turns
-    // with the head; the catchlight stays in view space.
     sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vEye;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvEye = position;');
+      .replace('#include <common>', '#include <common>\nvarying vec3 vEye;\nvarying vec3 vMv;\nvarying vec3 vC;\nvarying float vR;')
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+      vEye = position;
+      vMv = (modelViewMatrix * vec4(transformed, 1.0)).xyz;
+      vC = (modelViewMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+      vR = length((modelViewMatrix * vec4(1.0, 0.0, 0.0, 0.0)).xyz);`);
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vEye;')
+      .replace('#include <common>', '#include <common>\nvarying vec3 vEye;\nvarying vec3 vMv;\nvarying vec3 vC;\nvarying float vR;')
       .replace('#include <color_fragment>', `#include <color_fragment>
       float ir = length(vEye.xy) * step(0.0, vEye.z) + step(vEye.z, 0.0);
-      vec3 iris = mix(vec3(0.147, 0.05, 0.016), vec3(0.041, 0.017, 0.01), smoothstep(0.55, 0.85, ir));
-      diffuseColor.rgb = mix(vec3(0.011, 0.005, 0.0037), iris, smoothstep(0.4, 0.46, ir));`)
+      vec3 iris = mix(vec3(0.05, 0.019, 0.008), vec3(0.2, 0.08, 0.026), smoothstep(0.05, -0.75, vEye.y));
+      vec3 eyeCol = mix(vec3(0.012, 0.006, 0.004), iris, smoothstep(0.4, 0.56, ir));
+      // Lid line: thicker on top, only a hint along the bottom.
+      float rimW = 0.84 - 0.1 * smoothstep(0.2, 0.8, vEye.y);
+      float rim = smoothstep(rimW, rimW + 0.05, ir) * mix(0.35, 1.0, smoothstep(-0.5, 0.3, vEye.y));
+      diffuseColor.rgb = mix(eyeCol, vec3(0.008, 0.004, 0.003), rim);`)
       .replace('#include <dithering_fragment>', `#include <dithering_fragment>
-      float glint = smoothstep(0.993, 0.996, dot(normalize(normal), normalize(vec3(-0.3, 0.45, 0.84))));
-      gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(1.0), glint * 0.95);`);
+      vec2 o = (vMv.xy - vC.xy) / vR;
+      float big = 1.0 - smoothstep(0.2, 0.24, length(o - vec2(-0.22, 0.28)));
+      float small = 1.0 - smoothstep(0.06, 0.09, length(o - vec2(0.28, -0.22)));
+      gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(1.0), max(big, small * 0.45));`);
   };
   return m;
 }
@@ -214,6 +224,7 @@ export class DogVisual {
   dispose() {
     this.root.removeFromParent();
     for (const m of [this.mat, this.earMat, this.pawMat, this.lineMat, this.lineMatR, this.mouth.material]) m.dispose();
+    this.crown.traverse((o) => o.geometry?.dispose()); // each dog builds its own crown
   }
 
   // x, y: interpolated game position; d: the game dog.
@@ -395,9 +406,10 @@ export class DogVisual {
       tmpA.crossVectors(UP, tmpC).normalize();
       tmpM.makeBasis(tmpA, tmpE.crossVectors(tmpC, tmpA), tmpC);
       b.quaternion.setFromRotationMatrix(tmpM);
-      const hy = eyeR * 1.1 * (1 - 0.85 * shut);
-      b.position.set(eyeA.x, eyeA.y, eyeA.z * side).addScaledVector(tmpC, -eyeR * 0.1).addScaledVector(tmpE, hy - eyeR * 1.1);
-      b.scale.set(eyeR * 0.95, hy, eyeR * 0.45);
+      // Round and a bit taller than wide; deep enough that the brow doesn't clip its top.
+      const hy = eyeR * 1.15 * (1 - 0.85 * shut);
+      b.position.set(eyeA.x, eyeA.y, eyeA.z * side).addScaledVector(tmpC, -eyeR * 0.04).addScaledVector(tmpE, hy - eyeR * 1.15);
+      b.scale.set(eyeR, hy, eyeR * 0.6);
       b.visible = !dizzy;
       e.visible = dizzy;
       if (dizzy) {

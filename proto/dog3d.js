@@ -3,47 +3,21 @@ import * as THREE from 'three';
 import { CONFIG } from '../src/config.js';
 import { Game, stageOf } from '../src/game.js';
 import { Input } from '../src/input.js';
-import { buildDogAssets } from './dogModel.js';
 import { DogVisual } from './dogVisual.js';
-import { buildMeadow, buildFood } from './meadow.js';
-import { FX } from './fx.js';
-import { LOCK_UNIFORMS } from './toon.js';
+import { World3D } from './render3d.js';
 
-const { world: W, dog: D, camera: CAM, shove: SH, food: F } = CONFIG;
+const { shove: SH } = CONFIG;
 const $ = (id) => document.getElementById(id);
 const canvas = $('c');
 
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(1.5, devicePixelRatio));
-renderer.outputColorSpace = THREE.SRGBColorSpace;
-renderer.info.autoReset = false;
-
-const scene = new THREE.Scene();
-scene.add(new THREE.HemisphereLight('#fff6e6', '#7a9a50', 2.3));
-const sun = new THREE.DirectionalLight('#fff0d0', 2.0);
-sun.position.set(-0.5, 1, 0.7);
-scene.add(sun);
-
-// Toon meadow (ground, decor, fence, trees) and 3D food.
-const meadow = buildMeadow(scene, W.w, W.h);
-const MAX_FOOD = F.count + 64;
-const food = buildFood(scene, MAX_FOOD);
-const fx = DogVisual.fx = new FX(scene);
-const easeOutBack = (x) => 1 + 2.70158 * (x - 1) ** 3 + 1.70158 * (x - 1) ** 2;
-const fm = new THREE.Matrix4(), fq = new THREE.Quaternion(), fp = new THREE.Vector3(), fs = new THREE.Vector3(), FY = new THREE.Vector3(0, 1, 0);
-
-const t0 = performance.now();
-const assets = buildDogAssets();
-const bakeMs = performance.now() - t0;
-
-const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 5000);
-let camMode = 'game', camView = 0, camX = W.w / 2, camZ = W.h / 2;
+// Meadow, food, dogs and cameras live in World3D (shared with the game's ?3d renderer).
+const world = new World3D(canvas);
+const { renderer, scene, meadow, food, assets, bakeMs, camera, visuals } = world;
 
 const game = new Game({});
 const input = new Input(canvas, $('dash'));
 input.enabled = true;
 let mode = 'manual', paused = false, timeScale = 1, stress = false;
-const visuals = new Map();
 
 function startSolo() {
   stress = false;
@@ -58,10 +32,7 @@ function startStress() {
   game.countdown = 0.01;
   syncVisuals();
 }
-function syncVisuals() {
-  for (const [d, v] of visuals) if (!game.dogs.includes(d)) { v.dispose(); visuals.delete(d); }
-  for (const d of game.dogs) if (!visuals.has(d)) visuals.set(d, new DogVisual(assets, scene, d.isPlayer));
-}
+const syncVisuals = () => world.syncVisuals(game);
 
 function setGrowth(xp) {
   const p = game.player;
@@ -72,7 +43,10 @@ function setGrowth(xp) {
 let scriptT = 0;
 function playerInput(dt) {
   scriptT += dt;
-  if (mode === 'manual') return input.read(innerWidth, innerHeight);
+  if (mode === 'manual') {
+    const i = input.read(innerWidth, innerHeight), w = Math.sin(52 * Math.PI / 180), l = Math.hypot(i.dirX, i.dirY / w);
+    return l > 1e-6 ? { ...i, dirX: i.dirX / l, dirY: i.dirY / w / l } : i; // screen -> ground under the 52° camera
+  }
   if (mode === 'idle') return { dirX: 0, dirY: 0, mag: 0, dash: false };
   if (mode === 'circle') { const a = scriptT * 0.9; return { dirX: Math.cos(a), dirY: Math.sin(a), mag: 1, dash: false }; }
   // zigzag: hard 140° turns every 1.1 s, makes the dog skid
@@ -82,7 +56,7 @@ function playerInput(dt) {
 
 let dashReq = false;
 const STEP = 1 / 60;
-let acc = 0, time = 0;
+let acc = 0;
 function stepGame(dt) {
   acc += dt;
   let n = 0;
@@ -98,82 +72,13 @@ function stepGame(dt) {
   if (!stress) { const g = +$('grow').value; if (game.player.xp !== g) setGrowth(g); }
 }
 
-function syncView() {
-  // Outline width needs the drawing-buffer size and the camera's px per world unit.
-  const V = DogVisual.view;
-  renderer.getDrawingBufferSize(V.res);
-  V.pxPerUnit = V.res.y / (camera.top - camera.bottom);
-  V.dpr = renderer.getPixelRatio();
-  LOCK_UNIFORMS.uHalfWidthPx.value = 0.8 * V.dpr; // 1.6 CSS px ink arcs in the fur
-  const px = V.dpr * 1.5;
-  meadow.setRes(V.res, px);
-  for (const m of food.lineMats) { m.uniforms.uRes.value.copy(V.res); m.uniforms.uPx.value = px; }
-  const hx = (camera.right - camera.left) / 2, hz = (camera.top - camera.bottom) / 2 / Math.sin(52 * Math.PI / 180);
-  const c = camera.userData.target ?? { x: W.w / 2, z: W.h / 2 };
-  meadow.update(time, c.x, c.z, hx, hz);
-}
-
-function updateCamera(dt) {
-  const p = game.player, vw = innerWidth, vh = innerHeight, aspect = vw / vh;
-  const v = visuals.get(p);
-  camX += (p.x - camX) * (1 - Math.exp(-CAM.follow * dt));
-  camZ += (p.y - camZ) * (1 - Math.exp(-CAM.follow * dt));
-  let view = CAM.viewAtBase * Math.pow(p.drawR / D.baseRadius, CAM.zoomExp) / (vw > vh ? CAM.landscapeZoom : 1);
-  let pitch = 52 * Math.PI / 180, az = 0;
-  if (camMode === 'close') { view = p.drawR * 3.6; pitch = 25 * Math.PI / 180; az = v ? v.yaw + Math.PI / 2 - 0.7 : 0; }
-  if (camMode === 'side') { view = p.drawR * 4.2; pitch = 4 * Math.PI / 180; az = v ? v.yaw : 0; }
-  camView = camView ? camView + (view - camView) * (1 - Math.exp(-3 * dt)) : view;
-  const tx = camMode === 'game' ? camX : p.x, tz = camMode === 'game' ? camZ : p.y;
-  const ty = camMode === 'game' ? 0 : p.drawR * 0.9;
-  const dist = 1500;
-  // az = 0 looks "north" (towards -z), like the 2D screen.
-  camera.position.set(tx + Math.sin(az) * Math.cos(pitch) * dist, ty + Math.sin(pitch) * dist, tz + Math.cos(az) * Math.cos(pitch) * dist);
-  camera.lookAt(tx, ty, tz);
-  camera.userData.target = { x: tx, z: tz };
-  const short = camView / 2;
-  if (aspect >= 1) { camera.top = short; camera.bottom = -short; camera.left = -short * aspect; camera.right = short * aspect; }
-  else { camera.left = -short; camera.right = short; camera.top = short / aspect; camera.bottom = -short / aspect; }
-  camera.near = 1; camera.far = 4000;
-  camera.updateProjectionMatrix();
-  syncView();
-}
-
-function updateFood(dt) {
-  food.begin();
-  // Only food near the camera goes to the GPU.
-  const c = camera.userData.target ?? { x: 0, z: 0 }, hx = (camera.right - camera.left) / 2 + 40;
-  const hz = (camera.top - camera.bottom) / 2 / Math.sin(52 * Math.PI / 180) + 40;
-  let i = 0;
-  for (const f of game.food) {
-    f.pop += dt;
-    if (Math.abs(f.x - c.x) > hx || Math.abs(f.y - c.z) > hz) continue;
-    if (i++ >= MAX_FOOD) break;
-    const k = f.pop <= 0 ? 0 : f.pop >= 0.35 ? 1 : easeOutBack(f.pop / 0.35);
-    const id = f.type?.id ?? 'basic', r = (f.type?.r ?? 8) * food.size(id, f.rot) * Math.max(0, k);
-    fp.set(f.x, 0, f.y); fq.setFromAxisAngle(FY, f.rot); fs.set(r, r, r);
-    food.add(id, f.rot, fm.compose(fp, fq, fs));
-  }
-  food.end();
-}
-
 const stats = { fps: 0, ms: 0, frames: 0, acc: 0, msAcc: 0 };
 function frame(dt) {
   const c0 = performance.now();
   dt = Math.min(dt, 0.1);
   const gdt = paused ? 0 : dt * timeScale;
-  time += gdt;
   stepGame(gdt);
-  syncVisuals();
-  const alpha = acc / STEP;
-  for (const d of game.dogs) {
-    const x = d.px + (d.x - d.px) * alpha, y = d.py + (d.y - d.py) * alpha;
-    visuals.get(d).update(d, x, y, Math.max(gdt, 1e-6), time);
-  }
-  updateFood(gdt);
-  updateCamera(dt);
-  fx.update(gdt, camera);
-  renderer.info.reset();
-  renderer.render(scene, camera);
+  world.frame(game, acc / STEP, gdt, innerWidth, innerHeight);
   const ms = performance.now() - c0;
 
   stats.frames++; stats.acc += dt; stats.msAcc += ms;
@@ -190,7 +95,7 @@ function frame(dt) {
     `скорость ${Math.hypot(p.vx, p.vy).toFixed(0)}  занос ${p.skid.toFixed(0)}  оглуш ${p.stun.toFixed(2)}`;
 }
 
-function resize() { renderer.setSize(innerWidth, innerHeight, false); }
+function resize() { world.resize(innerWidth, innerHeight); }
 addEventListener('resize', resize);
 resize();
 
@@ -208,7 +113,7 @@ const pick = (box, attr, fn) => box.addEventListener('click', (e) => {
   fn(b.dataset[attr]);
 });
 pick($('modes'), 'mode', (m) => { mode = m; scriptT = 0; });
-pick($('cams'), 'cam', (c) => { camMode = c; camView = 0; });
+pick($('cams'), 'cam', (c) => { world.cam.mode = c; world.cam.view = 0; });
 $('grow').addEventListener('input', (e) => { $('growV').textContent = e.target.value; });
 $('dashB').onclick = () => { dashReq = true; };
 $('stunB').onclick = () => {
@@ -253,7 +158,7 @@ function drawLineup(t, view = 'side') {
   camera.userData.target = { x: cx, z: 0 };
   camera.left = -w / 2; camera.right = w / 2; camera.top = w / 2 / aspect; camera.bottom = -w / 2 / aspect;
   camera.updateProjectionMatrix();
-  syncView();
+  world.syncView();
   meadow.ground.visible = true; food.visible = false;
   // &bg=plain: only the dogs on the concept sheet's flat grey-green, for side-by-side reviews.
   if (plain) {
@@ -272,7 +177,7 @@ if (lineup.length) { for (const v of visuals.values()) v.root.visible = false; w
 else requestAnimationFrame(loop);
 // Hooks for stepping without rAF (browser pane) and for measurements.
 window.__p = { game, visuals, renderer, scene, camera, frame, assets, bakeMs, DogVisual, THREE,
-  set mode(m) { mode = m; scriptT = 0; }, set cam(c) { camMode = c; camView = 0; },
+  set mode(m) { mode = m; scriptT = 0; }, set cam(c) { world.cam.mode = c; world.cam.view = 0; },
   setGrowth: (xp) => { $('grow').value = xp; $('growV').textContent = xp; },
   // Foot contact check: stance paws' gap to the grass and slide per frame, in R.
   measure(n = 120) {

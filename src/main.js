@@ -10,8 +10,13 @@ const canvas = $('game');
 const STEP = 1 / CONFIG.simHz;
 const MEDALS = ['🥇', '🥈', '🥉'];
 
-const art = await loadArt();
-const renderer = new Renderer(canvas, art);
+// ?3d: the 3D renderer (proto/render3d.js) behind the same interface, for testing in the game.
+// If 3D can't start (old Safari, no WebGL), say so and fall back to the 2D game.
+async function make3d() {
+  try { return new (await import('../proto/render3d.js')).Renderer3D(canvas); }
+  catch (e) { console.error(e); alert('3D не запустилось, открываю обычную версию.'); return null; }
+}
+const renderer = (new URLSearchParams(location.search).has('3d') && await make3d()) || new Renderer(canvas, await loadArt());
 const input = new Input(canvas, $('dash'));
 let screen = 'start';
 let paused = false;
@@ -200,7 +205,9 @@ function frame(now) {
   last = now;
   if (input.enabled && game.racing) {
     const i = input.read(renderer.vw, renderer.vh);
-    game.setPlayerInput(i.dirX, i.dirY, i.mag, i.dash);
+    // The 3D camera looks down at an angle: screen directions become ground directions.
+    const [dx, dy] = renderer.screenDirToWorld ? renderer.screenDirToWorld(i.dirX, i.dirY) : [i.dirX, i.dirY];
+    game.setPlayerInput(dx, dy, i.mag, i.dash);
   } else {
     game.setPlayerInput(0, 0, 0, false);
   }
