@@ -6,6 +6,7 @@ import { Input } from '../src/input.js';
 import { buildDogAssets } from './dogModel.js';
 import { DogVisual } from './dogVisual.js';
 import { buildMeadow, buildFood } from './meadow.js';
+import { FX } from './fx.js';
 
 const { world: W, dog: D, camera: CAM, shove: SH, food: F } = CONFIG;
 const $ = (id) => document.getElementById(id);
@@ -26,6 +27,7 @@ scene.add(sun);
 const meadow = buildMeadow(scene, W.w, W.h);
 const MAX_FOOD = F.count + 64;
 const food = buildFood(scene, MAX_FOOD);
+const fx = DogVisual.fx = new FX(scene);
 const easeOutBack = (x) => 1 + 2.70158 * (x - 1) ** 3 + 1.70158 * (x - 1) ** 2;
 const fm = new THREE.Matrix4(), fq = new THREE.Quaternion(), fp = new THREE.Vector3(), fs = new THREE.Vector3(), FY = new THREE.Vector3(0, 1, 0);
 
@@ -167,6 +169,7 @@ function frame(dt) {
   }
   updateFood(gdt);
   updateCamera(dt);
+  fx.update(gdt, camera);
   renderer.info.reset();
   renderer.render(scene, camera);
   const ms = performance.now() - c0;
@@ -229,11 +232,16 @@ if (location.search.includes('lineup')) {
   });
 }
 function drawLineup(t, view = 'side') {
+  // Portrait: stages 1, 4, 6 at one size, turned 3/4 towards the camera, like the concept sheet.
+  if (view === 'portrait') for (const [i, { d, v }] of lineup.entries()) {
+    v.root.visible = [0, 3, 5].includes(i);
+    d.r = v.root.visible ? 30 : 0; d.drawR = 30; d.mag = 0.2; d.dirX = 0.5; d.dirY = 0.87;
+  }
   let x = 0;
   for (const { d, v } of lineup) { x += d.r * 1.6; d.x = x; d.y = 0; x += d.r * 1.6; }
   for (const { d, v } of lineup) v.update(d, d.x, d.y, 1 / 60, t);
   const cx = x / 2, w = x * 1.05, aspect = innerWidth / innerHeight;
-  const pitch = view === 'game' ? 52 * Math.PI / 180 : view === 'front' ? 10 * Math.PI / 180 : 6 * Math.PI / 180;
+  const pitch = (view === 'game' ? 52 : view === 'front' ? 10 : view === 'portrait' ? 28 : 6) * Math.PI / 180;
   camera.position.set(cx, 40 + Math.sin(pitch) * 1500, Math.cos(pitch) * 1500);
   camera.lookAt(cx, 40, 0);
   camera.userData.target = { x: cx, z: 0 };

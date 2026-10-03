@@ -60,6 +60,7 @@ function groundMaps(W, H, L) {
   }
   const map = new THREE.DataTexture(data, S, S);
   map.magFilter = map.minFilter = THREE.LinearFilter;
+  map.wrapS = map.wrapT = THREE.RepeatWrapping; // the cloud shadows scroll over it
   map.needsUpdate = true;
 
   // Fine grass strokes, neutral grey = no change.
@@ -85,7 +86,7 @@ function groundMaterial(W, H, M) {
     uniforms: {
       uMap: { value: M.map }, uDetail: { value: M.detail }, uX0: { value: M.x0 }, uSpan: { value: M.span },
       uField: { value: new THREE.Vector2(W, H) }, uTime: { value: 0 },
-      cDark: { value: col('#78b044') }, cMid: { value: col('#82ba4b') }, cLight: { value: col('#8ec455') },
+      cDark: { value: col('#6c9a3c') }, cMid: { value: col('#76a543') }, cLight: { value: col('#84b04c') },
       cPath: { value: col('#dcb98a') }, cPathEdge: { value: col('#b99063') },
       cWater: { value: col('#5fb2d6') }, cWaterLight: { value: col('#93d3ec') }, cShore: { value: col('#4f8c35') },
     },
@@ -113,6 +114,12 @@ function groundMaterial(W, H, M) {
         vec2 out2 = max(-vW, vW - uField);
         float outside = smoothstep(0.0, 40.0, max(out2.x, out2.y));
         c = mix(c, c * vec3(0.84, 0.9, 0.92), outside);
+        // Shade along the inside of the fence, as if from the bushes behind it.
+        vec2 in2 = min(vW, uField - vW);
+        c *= mix(0.86, 1.0, smoothstep(0.0, 70.0, min(in2.x, in2.y))) + outside * 0.14 * (1.0 - smoothstep(0.0, 70.0, min(in2.x, in2.y)));
+        // Soft cloud shadows drifting over the meadow.
+        float cl = texture2D(uMap, (vW + vec2(uTime * 9.0, uTime * 4.0) - uX0) / (uSpan * 1.7) + 0.31).r;
+        c *= 1.0 - 0.1 * smoothstep(0.52, 0.62, cl);
         // Path with a darker rim.
         float p = m.g * 60.0;
         c = mix(c, cPathEdge, 1.0 - smoothstep(22.0, 24.0, p));
@@ -180,6 +187,36 @@ function flowerGeometry() {
   return g;
 }
 
+// Broad-leaf plant: leaves fanning out and up from the centre, darker at the base.
+function leafPlantGeometry() {
+  const parts = [], n = 6;
+  for (let i = 0; i < n; i++) {
+    const l = new THREE.CircleGeometry(0.5, 8);
+    l.scale(1, 0.42, 1); l.translate(0.5, 0, 0);
+    const pos = l.attributes.position, c = new Float32Array(pos.count * 3);
+    for (let k = 0; k < pos.count; k++) { const sh = 0.7 + 0.45 * pos.getX(k); c[k * 3] = c[k * 3 + 1] = c[k * 3 + 2] = sh; }
+    l.setAttribute('color', new THREE.BufferAttribute(c, 3));
+    l.rotateX(-Math.PI / 2); l.rotateZ(0.5 + (i % 2) * 0.25); l.rotateY(i / n * TAU + (i % 2) * 0.4);
+    parts.push(strip(l));
+  }
+  return mergeGeometries(parts);
+}
+
+// Lily pad: a disc with a notch, flat on the water.
+function lilyGeometry() {
+  const g = new THREE.CircleGeometry(1, 16, 0.35, TAU - 0.7); g.rotateX(-Math.PI / 2);
+  return strip(colored(g, 1, 1, 1));
+}
+
+// Soft round shadow decal.
+function shadowTexture() {
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const x = c.getContext('2d'), g = x.createRadialGradient(32, 32, 4, 32, 32, 31);
+  g.addColorStop(0, 'rgba(0,0,0,0.42)'); g.addColorStop(0.6, 'rgba(0,0,0,0.28)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+  x.fillStyle = g; x.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(c);
+}
+
 // Lumpy blob for stones, bushes and tree crowns (radius ~1).
 function blobGeometry(detail, freq, amp, seed) {
   let g = new THREE.IcosahedronGeometry(1, detail);
@@ -193,7 +230,7 @@ function blobGeometry(detail, freq, amp, seed) {
     v.toArray(od, i * 3);
     const k = 1 + amp * (b - 0.5);
     pos.setXYZ(i, v.x * k, v.y * k, v.z * k);
-    const sh = (0.75 + 0.25 * smooth(0.02, 0.45, b)) * (0.85 + 0.15 * smooth(-0.6, 0.6, v.y));
+    const sh = (0.8 + 0.2 * smooth(0.02, 0.45, b)) * (0.72 + 0.32 * smooth(-0.7, 0.7, v.y)); // darker underside
     c[i * 3] = c[i * 3 + 1] = c[i * 3 + 2] = sh;
   }
   g.setAttribute('color', new THREE.BufferAttribute(c, 3));
@@ -366,7 +403,15 @@ export function buildMeadow(scene, W, H) {
       flowers.push({ x: px, z: pz, r: s, m: place(px, 0, pz, r() * TAU, s), c: col });
     }
   }
-  const flowerS = new Scatter(scene, flowerGeometry(), flowerMat, flowers);
+
+  // Broad-leaf plants: a few in the field, more along the fence.
+  const leafMat = new THREE.MeshBasicMaterial({ color: '#ffffff', vertexColors: true, side: THREE.DoubleSide });
+  const leaves = [], leafCols = ['#4f8a34', '#5a9639', '#468030'];
+  const addLeaf = (x, z, s) => leaves.push({ x, z, r: s, m: place(x, 0.5, z, r() * TAU, s), c: new THREE.Color(leafCols[Math.floor(r() * 3)]) });
+  for (let i = 0; i < 70; i++) {
+    const x = 60 + r() * (W - 120), z = 60 + r() * (H - 120);
+    if (!onPath(x, z, 16)) addLeaf(x, z, 13 + r() * 8);
+  }
 
   // Stones and mushrooms: mostly along the fence and beyond it.
   const stoneMat = toonMaterial('#ffffff'); stoneMat.vertexColors = true;
@@ -374,16 +419,20 @@ export function buildMeadow(scene, W, H) {
     const t = r() * 4, u = r(), d = (r() - 0.35) * spread;
     if (t < 1) return [u * W, -d]; if (t < 2) return [W + d, u * H]; if (t < 3) return [u * W, H + d]; return [-d, u * H];
   };
-  for (let i = 0; i < 90; i++) {
+  for (let i = 0; i < 60; i++) {
+    const [x, z] = edgeSpot(160);
+    if (!inPond(x, z, 20) && !onPath(x, z, 14)) addLeaf(x, z, 15 + r() * 10);
+  }
+  for (let i = 0; i < 130; i++) {
     const [x, z] = edgeSpot(260);
     if (inPond(x, z, 20) || onPath(x, z, 14)) continue;
-    const s = 8 + r() * 14, g = 0.62 + r() * 0.1;
+    const s = 8 + r() * 14, g = 0.5 + r() * 0.1;
     stones.push({ x, z, r: s * 1.3, m: place(x, s * 0.2, z, r() * TAU, s * (1 + r() * 0.4), s * 0.6, s), c: new THREE.Color(g, g, g * 0.96) });
   }
   for (let i = 0; i < 14; i++) { // a few pebbles inside the field
     const x = 100 + r() * (W - 200), z = 100 + r() * (H - 200);
     if (onPath(x, z, 14)) continue;
-    const s = 5 + r() * 4, g = 0.66 + r() * 0.08;
+    const s = 5 + r() * 4, g = 0.52 + r() * 0.08;
     stones.push({ x, z, r: s, m: place(x, s * 0.2, z, r() * TAU, s * 1.2, s * 0.55, s), c: new THREE.Color(g, g, g * 0.96) });
   }
   const stoneS = new Scatter(scene, blobGeometry(1, 1.6, 0.25, 4), stoneMat, stones, lineR);
@@ -409,7 +458,7 @@ export function buildMeadow(scene, W, H) {
 
   // Bushes hugging the fence from outside, trees further out (cooler, to recede).
   const bushMat = toonMaterial('#ffffff'); bushMat.vertexColors = true;
-  const bushes = [], bushCols = ['#5f9e3c', '#6aa944', '#558f36'];
+  const bushes = [], bushCols = ['#4c8a34', '#56953a', '#43802f'];
   const ring = (dist, count, fn) => {
     const per = 2 * (W + H);
     for (let i = 0; i < count; i++) {
@@ -424,20 +473,61 @@ export function buildMeadow(scene, W, H) {
   ring(45, 130, (x, z) => {
     const s = 26 + r() * 22;
     bushes.push({ x, z, r: s * 1.3, m: place(x, s * 0.45, z, r() * TAU, s * 1.25, s * 0.9, s * 1.1), c: new THREE.Color(bushCols[Math.floor(r() * 3)]) });
+    if (r() < 0.55) { // a few blossoms on top
+      const col = new THREE.Color(r() < 0.6 ? '#ffffff' : '#ffb35c'), n = 2 + Math.floor(r() * 4);
+      for (let k = 0; k < n; k++) {
+        const a = r() * TAU, rr = r() * 0.75, px = x + Math.cos(a) * rr * s * 1.15, pz = z + Math.sin(a) * rr * s;
+        flowers.push({ x: px, z: pz, r: 6, m: place(px, s * 0.45 + s * 0.88 * Math.sqrt(1 - rr * rr), pz, r() * TAU, 4.5), c: col });
+      }
+    }
   });
-  const bushS = new Scatter(scene, blobGeometry(3, 2.2, 0.3, 8), bushMat, bushes, lineR);
+  const bushS = new Scatter(scene, blobGeometry(3, 1.7, 0.2, 8), bushMat, bushes, lineR);
 
-  const trees = [], trunks = [], crownCols = ['#5c9a44', '#53903f', '#64a24a'];
+  const trees = [], trunks = [], crownCols = ['#4f8c3c', '#478338', '#579442'];
   ring(150, 70, (x, z) => {
     if (z > H) z += 90; // south trees stand further out: they lean into the view
     const s = 50 + r() * 26, h = s * 1.1;
     trees.push({ x, z, r: s * 1.3, m: place(x, h + s * 0.55, z, r() * TAU, s, s * 0.9, s), c: new THREE.Color(crownCols[Math.floor(r() * 3)]) });
     trunks.push({ x, z, r: s, m: place(x, h * 0.5 + s * 0.2, z, 0, s * 0.18, h + s * 0.4, s * 0.18) });
   });
-  const crownS = new Scatter(scene, blobGeometry(3, 1.5, 0.24, 13), bushMat, trees, lineR);
+  // Far row: bigger, darker and cooler, so the forest recedes.
+  const farCols = ['#3f7436', '#3a6c38', '#457b3b'];
+  ring(330, 60, (x, z) => {
+    if (z > H) z += 120;
+    const s = 70 + r() * 30, h = s * 1.0;
+    trees.push({ x, z, r: s * 1.3, m: place(x, h + s * 0.55, z, r() * TAU, s, s * 0.9, s), c: new THREE.Color(farCols[Math.floor(r() * 3)]) });
+    trunks.push({ x, z, r: s, m: place(x, h * 0.5 + s * 0.2, z, 0, s * 0.18, h + s * 0.4, s * 0.18) });
+  });
+  const crownS = new Scatter(scene, blobGeometry(3, 1.4, 0.18, 13), bushMat, trees, lineR);
+  const flowerS = new Scatter(scene, flowerGeometry(), flowerMat, flowers);
+  const leafS = new Scatter(scene, leafPlantGeometry(), leafMat, leaves);
+
+  // Lily pads on the pond.
+  const lilies = [];
+  for (let i = 0; i < 9; i++) {
+    const a = r() * TAU, d = r() * L.pond.r * 0.7, x = L.pond.x + Math.cos(a) * d, z = L.pond.z + Math.sin(a) * d * 0.8, s = 12 + r() * 9;
+    lilies.push({ x, z, r: s, m: place(x, 0.8, z, r() * TAU, s), c: new THREE.Color(r() < 0.5 ? '#5f9e3f' : '#6aa947') });
+    if (r() < 0.4) flowers.push({ x, z, r: 6, m: place(x + 3, 1.6, z - 2, r() * TAU, 5), c: new THREE.Color('#ffd0e0') });
+  }
+  const lilyS = new Scatter(scene, lilyGeometry(), new THREE.MeshBasicMaterial({ color: '#ffffff' }), lilies);
+
+  // Soft contact shadows under everything that stands on the grass.
+  const shadows = [];
+  const shadowOf = (list, k, ky = 1) => {
+    for (const it of list) {
+      tp.setFromMatrixScale(it.m);
+      const sx = tp.x * k, sz = tp.z * k * ky;
+      shadows.push({ x: it.x + sx * 0.15, z: it.z + sz * 0.2, r: Math.max(sx, sz), m: place(it.x + sx * 0.15, 0.35, it.z + sz * 0.2, 0, sx * 2, 1, sz * 2) });
+    }
+  };
+  shadowOf(stones, 1.25); shadowOf(bushes, 1.3); shadowOf(trees, 1.2); shadowOf(mush, 0.7); shadowOf(leaves, 0.8);
+  const shadowMat = new THREE.MeshBasicMaterial({ map: shadowTexture(), transparent: true, depthWrite: false, color: '#1d3a10' });
+  const shadowGeo = new THREE.PlaneGeometry(1, 1); shadowGeo.rotateX(-Math.PI / 2);
+  const shadowS = new Scatter(scene, shadowGeo, shadowMat, shadows);
+  shadowS.mesh.renderOrder = -1;
   const trunkS = new Scatter(scene, new THREE.CylinderGeometry(0.6, 0.85, 1, 8, 1, true), toonMaterial('#8a5a35'), trunks);
 
-  const scatters = [tuftS, flowerS, stoneS, mushS, bushS, crownS, trunkS];
+  const scatters = [tuftS, flowerS, leafS, stoneS, mushS, bushS, crownS, trunkS, lilyS, shadowS];
   let lastCull = null;
 
   return {

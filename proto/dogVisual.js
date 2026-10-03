@@ -37,6 +37,7 @@ const LEGS = [
 ];
 
 const tmpM = new THREE.Matrix4();
+const fxDir = new THREE.Vector3(), fxPos = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0), FWD_Z = new THREE.Vector3(0, 0, 1);
 const tmpA = new THREE.Vector3(), tmpB = new THREE.Vector3(), tmpC = new THREE.Vector3();
 
@@ -75,7 +76,7 @@ function sharedMaterials(assets) {
   shared = {
     eye: new THREE.MeshBasicMaterial({ map: assets.eyeTex }),
     dizzy: new THREE.MeshBasicMaterial({ map: assets.dizzyTex }),
-    nose: new THREE.MeshPhongMaterial({ color: 0x1c120c, shininess: 80, specular: 0x555555 }),
+    nose: new THREE.MeshPhongMaterial({ color: 0x3a2014, shininess: 60, specular: 0x8a6a5a }),
     shadow: new THREE.MeshBasicMaterial({ map: blobTexture(), transparent: true, depthWrite: false }),
     swirl: new THREE.SpriteMaterial({ map: swirlTexture(), depthTest: false }),
     playerRing: new THREE.MeshBasicMaterial({ color: 0xffe45c, transparent: true, opacity: 0.9, depthWrite: false }),
@@ -104,6 +105,7 @@ function makeCrown(mat) {
 export class DogVisual {
   // Set by the renderer every frame: drawing-buffer size, device px per world unit, DPR.
   static view = { res: new THREE.Vector2(1, 1), pxPerUnit: 1, dpr: 1 };
+  static fx = null; // effects pool (fx.js), set by the renderer
 
   constructor(assets, scene, isPlayer) {
     this.assets = assets;
@@ -205,7 +207,7 @@ export class DogVisual {
     const V = DogVisual.view;
     for (const lm of [this.lineMat, this.lineMatR]) {
       lm.uniforms.uRes.value.copy(V.res);
-      lm.uniforms.uPx.value = clamp(0.03 * s * V.pxPerUnit, 1.0 * V.dpr, 1.6 * V.dpr);
+      lm.uniforms.uPx.value = clamp(0.04 * s * V.pxPerUnit, 1.3 * V.dpr, 2.2 * V.dpr);
     }
 
     // --- Heading: face where the dog wants to go; while sliding, velocity lags behind ------
@@ -325,7 +327,7 @@ export class DogVisual {
     const wag = Math.sin(t * (12 + 8 * Math.min(1, norm)) + this.seed) * (0.35 + 0.35 * Math.min(1, norm)) * (down ? 0.3 : 1);
     this.tail.rotation.set(wag, 0, 0.12, 'YXZ');
     // Big plume curling up over the rump, like the sprites.
-    this.tailMesh.scale.setScalar(P.bw * 0.9);
+    this.tailMesh.scale.setScalar(P.bw * 0.95);
 
     // --- Head ---------------------------------------------------------------------------------
     const hb = tmpA.set(lerp(a0.head.x, a1.head.x, w), lerp(a0.head.y, a1.head.y, w) - (a0.bodyY + (a1.bodyY - a0.bodyY) * w), 0);
@@ -341,30 +343,34 @@ export class DogVisual {
 
     // Eyes, nose, crown follow the head morph.
     const eyeA = tmpB.copy(a0.eye).lerp(a1.eye, w);
-    const eyeR = P.hw * lerp(0.19, 0.155, (st + w) / LAST);
+    const eyeR = P.hw * lerp(0.17, 0.15, (st + w) / LAST);
     this.blinkT -= dt;
     if (this.blinkT < 0) { this.blink = 0.13; this.blinkT = 2 + Math.random() * 4; }
     this.blink = Math.max(0, this.blink - dt);
     const dizzy = !!down && this.daze > 0.3;
     for (let i = 0; i < 2; i++) {
       const e = this.eyes[i], side = i ? 1 : -1;
-      e.position.set(eyeA.x, eyeA.y, eyeA.z * side);
-      tmpC.set(eyeA.x, eyeA.y * 0.6, eyeA.z * side * 1.25).normalize();
+      // Both eyes look forward (towards the viewer in 3/4), not out of the sides of the head;
+      // pushed out a little so the disc rim doesn't sink into the fur.
+      tmpC.set(1, 0.12, 0.42 * side).normalize();
+      e.position.set(eyeA.x, eyeA.y, eyeA.z * side).addScaledVector(tmpC, eyeR * 0.3);
       e.quaternion.setFromUnitVectors(FWD_Z, tmpC);
-      e.scale.set(eyeR, eyeR * (this.blink > 0 && !dizzy ? 0.12 : 1), 1);
+      e.scale.set(eyeR * 0.92, eyeR * 1.08 * (this.blink > 0 && !dizzy ? 0.12 : 1), 1);
       e.material = dizzy ? shared.dizzy : shared.eye;
       if (dizzy) e.rotateZ(t * 9 * side + this.seed);
     }
     this.nose.position.copy(a0.nose).lerp(a1.nose, w);
-    this.nose.scale.set(P.hw * 0.08, P.hw * 0.065, P.hw * 0.085);
+    this.nose.scale.set(P.hw * 0.075, P.hw * 0.065, P.hw * 0.095);
     // Mouth decal on the chin, facing out of the muzzle; open while running or panting.
     const mo = tmpB.copy(a0.mouth).lerp(a1.mouth, w);
     this.mouth.position.copy(mo);
     this.mouth.quaternion.setFromUnitVectors(FWD_Z, tmpC.set(1, -0.55, 0).normalize());
-    this.mouth.scale.set(P.hw * 0.3, P.hw * 0.225, 1);
+    this.mouth.scale.set(P.hw * 0.36, P.hw * 0.27, 1);
     // Hysteresis, so the mouth doesn't flicker around the speed threshold.
     this.panting = this.speed > (this.panting ? 0.2 : 0.45) * s;
-    this.mouth.material.map = (this.panting || !!down) && !dizzy ? A.mouthOpen : A.mouthClosed;
+    this.still = this.panting ? 0 : (this.still ?? 0) + dt;
+    // Happy open mouth like the concept art; a calm smile only after a while standing still.
+    this.mouth.material.map = (this.panting || !!down || this.still < 4) && !dizzy ? A.mouthOpen : A.mouthClosed;
     this.crown.visible = !!d.finished;
     this.crown.position.set(-P.hw * 0.05, P.hw * 0.52, 0);
     this.crown.scale.setScalar(P.hw * 0.17);
@@ -380,7 +386,7 @@ export class DogVisual {
       // Floppy ear hanging from the top of the skull side, splayed outwards; springs flap it.
       ear.pivot.rotation.set(-ear.side * (0.32 + Math.max(0, ear.a) * 0.45), 0, -0.15 + ear.a * 0.6 + (dizzy ? 0.3 : 0));
       ear.mesh.position.set(0, 0, ear.side * P.hw * 0.06);
-      ear.mesh.scale.set(P.hw * 0.78, P.ed * 1.35, P.hw * 0.7);
+      ear.mesh.scale.set(P.hw * 0.9, P.ed * 1.65, P.hw * 0.75);
     }
 
     // --- Legs ---------------------------------------------------------------------------------
@@ -475,7 +481,7 @@ export class DogVisual {
 
       placeSegment(L.upper, joint, knee, P.leg * 1.4);
       placeSegment(L.lower, knee, footLocal, P.leg * 1.12);
-      L.knee.position.copy(knee); L.knee.scale.setScalar(P.leg * 0.66);
+      L.knee.position.copy(knee); L.knee.scale.setScalar(P.leg * 1.15); // covers the joint: no seam
       L.paw.position.copy(footLocal); L.paw.scale.set(pawR * 1.25, pawR, pawR * 1.05);
     }
 
@@ -494,6 +500,19 @@ export class DogVisual {
       this.swirl.scale.setScalar(P.hw * 0.9 * appear);
       this.swirl.material.rotation = t * 7;
     }
+
+    // Dash effects: air wave and dust when it starts, wind streaks while it lasts.
+    const fx = DogVisual.fx, dashing = d.dashT > 0, vl = Math.hypot(d.vx, d.vy);
+    if (fx && vl > 1) {
+      fxDir.set(d.vx / vl, 0, d.vy / vl); fxPos.set(x, 0, y);
+      if (dashing && !this.wasDash) fx.dashBurst(fxPos, fxDir, s, (P.sh + P.bw * 0.45) * s);
+      if (dashing) {
+        this.windAcc = (this.windAcc ?? 0) + dt * 60;
+        const n = Math.floor(this.windAcc); this.windAcc -= n;
+        fx.dashWind(fxPos, fxDir, s, n);
+      }
+    }
+    this.wasDash = dashing;
   }
 }
 

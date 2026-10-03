@@ -14,6 +14,29 @@ function gradientMap() {
   return gradient;
 }
 
+// Painted curls: a short C-shaped arc around each Worley cell centre on the part's sphere
+// direction (stable while the stage morphs). Fades out when the curls get too small on screen.
+const CURL_GLSL = `
+vec3 curlHash(vec3 p) {
+  p = vec3(dot(p, vec3(127.1, 311.7, 74.7)), dot(p, vec3(269.5, 183.3, 246.1)), dot(p, vec3(113.5, 271.9, 124.6)));
+  return fract(sin(p) * 43758.5453);
+}
+float curlStroke(vec3 dir) {
+  if (dot(dir, dir) < 0.25) return 0.0; // parts without a sphere direction (leg tubes)
+  vec3 p = dir * 4.2 + 3.0, i = floor(p), f = fract(p);
+  float best = 9.0; vec3 off = vec3(0.0), h = vec3(0.0);
+  for (int z = -1; z <= 1; z++) for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++) {
+    vec3 g = vec3(float(x), float(y), float(z)), o = curlHash(i + g), r = g + o - f;
+    float d = dot(r, r);
+    if (d < best) { best = d; off = r; h = o; }
+  }
+  float d = sqrt(best), aa = max(fwidth(d), 1e-4);
+  float ring = 1.0 - smoothstep(0.035, 0.035 + aa * 1.5, abs(d - 0.27));
+  float arc = smoothstep(-0.3, 0.3, dot(normalize(-off), normalize(h - 0.5)));
+  return ring * arc * (1.0 - smoothstep(0.05, 0.12, aa));
+}
+`;
+
 // Toon coat. Vertex colour = crease shade; attribute `patch` (0..1) blends towards uPatch.
 export function coatMaterial(color, patchColor = color) {
   const m = new THREE.MeshToonMaterial({ color, gradientMap: gradientMap(), vertexColors: true });
@@ -21,12 +44,13 @@ export function coatMaterial(color, patchColor = color) {
   m.onBeforeCompile = (sh) => {
     sh.uniforms.uPatch = m.userData.patch;
     sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float furPatch;\nvarying float vPatch;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvPatch = furPatch;');
+      .replace('#include <common>', '#include <common>\nattribute float furPatch;\nattribute vec3 outlineDir;\nvarying float vPatch;\nvarying vec3 vDir;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvPatch = furPatch;\nvDir = outlineDir;');
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform vec3 uPatch;\nvarying float vPatch;')
+      .replace('#include <common>', '#include <common>\nuniform vec3 uPatch;\nvarying float vPatch;\nvarying vec3 vDir;\n' + CURL_GLSL)
       .replace('#include <color_fragment>',
-        '#include <color_fragment>\ndiffuseColor.rgb = mix(diffuseColor.rgb, uPatch * vColor.rgb, vPatch);');
+        '#include <color_fragment>\ndiffuseColor.rgb = mix(diffuseColor.rgb, uPatch * vColor.rgb, vPatch);\n' +
+        'diffuseColor.rgb *= 1.0 - 0.2 * curlStroke(vDir);');
   };
   m.customProgramCacheKey = () => 'coat';
   return m;

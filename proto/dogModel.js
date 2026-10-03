@@ -45,9 +45,9 @@ function headSdf(P) {
   const h = P.hw;
   return unionOf([
     [[0, 0, 0], [h * 0.46, h * 0.44, h * 0.5]],                              // skull
-    [[-h * 0.04, h * 0.27, 0], [h * 0.3, h * 0.24, h * 0.34]],              // fluffy top
-    [[h * 0.16, -h * 0.13, h * 0.2], [h * 0.24, h * 0.21, h * 0.2]],        // cheeks
-    [[h * 0.16, -h * 0.13, -h * 0.2], [h * 0.24, h * 0.21, h * 0.2]],
+    [[-h * 0.06, h * 0.16, 0], [h * 0.4, h * 0.3, h * 0.44]],              // round crown, no top-knot
+    [[h * 0.14, -h * 0.12, h * 0.22], [h * 0.26, h * 0.24, h * 0.24]],        // cheeks
+    [[h * 0.14, -h * 0.12, -h * 0.22], [h * 0.26, h * 0.24, h * 0.24]],
     [[h * 0.36 + P.mz * 0.5, -h * 0.12, 0], [P.mz * 0.6 + h * 0.12, h * 0.17, h * 0.2]], // muzzle
   ], h * 0.12);
 }
@@ -134,7 +134,7 @@ function bakePart(detail, shapeOf, fur, curlFreq) {
   const col = new Float32Array(n * 3), patch = new Float32Array(n);
   for (let i = 0; i < n; i++) {
     const d = dirs[i], f = fur(d, PROFILES[0]);
-    const c = (0.62 + 0.38 * smooth(0.02, 0.45, bumps[i])) * f.shade;
+    const c = (0.84 + 0.16 * smooth(0.02, 0.45, bumps[i])) * f.shade;
     col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = c;
     patch[i] = f.patch ?? 0;
   }
@@ -152,19 +152,25 @@ function bakePart(detail, shapeOf, fur, curlFreq) {
   return geo;
 }
 
-// Fluffy closed unit cylinder for leg segments: radius 0.5, y from -0.5 to 0.5. Joints are
-// covered by fluff balls, so the segment can be stretched along y without distorting caps.
+// Fluffy unit leg segment: radius 0.5, y from -0.5 to 0.5, ends rounded off. Joints are covered
+// by fluff balls, so the segment can be stretched along y.
 function bakeLimb() {
-  let g = new THREE.CylinderGeometry(0.5, 0.5, 1, 10, 3, false);
+  // Rounded "pill": a superellipse profile, so a stretched segment keeps soft ends, no flat caps.
+  const pts = [];
+  for (let i = 0; i <= 8; i++) {
+    const y = -0.5 + i / 8;
+    pts.push(new THREE.Vector2(0.5 * Math.pow(Math.max(0, 1 - Math.pow(Math.abs(2 * y), 4)), 0.25) + 1e-3, y));
+  }
+  let g = new THREE.LatheGeometry(pts, 10);
   g.deleteAttribute('normal'); g.deleteAttribute('uv');
   g = mergeVertices(g);
   const pos = g.attributes.position, n = pos.count, col = new Float32Array(n * 3);
   const v = new THREE.Vector3();
   for (let i = 0; i < n; i++) {
     v.fromBufferAttribute(pos, i);
-    const b = curls(v.x * 4 + 3, v.y * 3, v.z * 4), k = 1 + 0.08 * (b - 0.45);
+    const b = curls(v.x * 4 + 3, v.y * 3, v.z * 4), k = 1 + 0.06 * (b - 0.45);
     pos.setXYZ(i, v.x * k, v.y, v.z * k);
-    col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = 0.85 + 0.15 * b;
+    col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = 0.9 + 0.1 * b;
   }
   g.setAttribute('color', new THREE.BufferAttribute(col, 3));
   g.computeVertexNormals();
@@ -182,7 +188,7 @@ function bakeBlob(sdf, center, detail, freq, amp) {
     const b = curls(d.x * freq + 9, d.y * freq, d.z * freq);
     const t = rayToSurface(local, d) * (1 + amp * (b - 0.5));
     pos.setXYZ(i, c.x + d.x * t, c.y + d.y * t, c.z + d.z * t);
-    col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = 0.66 + 0.34 * smooth(0.02, 0.45, b);
+    col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = 0.84 + 0.16 * smooth(0.02, 0.45, b);
     d.toArray(od, i * 3);
   }
   g.setAttribute('color', new THREE.BufferAttribute(col, 3));
@@ -207,12 +213,12 @@ function earSdf() {
 // Plume tail in its own frame: base at the origin, rising along +y, curling over towards +x.
 // A spiral of growing curls around a filled core.
 function tailSdf() {
-  const parts = [[[0.12, 0.62, 0], [0.3, 0.3, 0.26]]];
+  const parts = [[[0.12, 0.62, 0], [0.36, 0.36, 0.3]]];
   const N = 8;
   for (let i = 0; i < N; i++) {
     const t = i / (N - 1);
     const phi = (254 - 290 * t) * Math.PI / 180, rho = 0.55 - 0.22 * t;
-    const r = 0.22 + 0.1 * Math.sin(Math.PI * Math.min(1, t * 1.25)) - 0.06 * t;
+    const r = 0.2 + 0.17 * Math.sin(Math.PI * Math.min(1, t * 1.15)) - 0.04 * t;
     parts.push([[0.12 + Math.cos(phi) * rho, 0.62 + Math.sin(phi) * rho, 0], [r, r, r * 0.85]]);
   }
   return unionOf(parts, 0.09);
@@ -252,13 +258,17 @@ function eyeTexture(dizzy) {
     }
     x.stroke();
   } else {
-    // Big glossy sprite eye: warm brown iris, dark pupil, two highlights.
-    const g = x.createRadialGradient(64, 80, 4, 64, 64, 56);
-    g.addColorStop(0, '#8a5232'); g.addColorStop(0.55, '#4a2816'); g.addColorStop(1, '#1e0f08');
-    x.fillStyle = g; x.beginPath(); x.arc(64, 64, 56, 0, Math.PI * 2); x.fill();
-    disc(30, 'rgba(15,6,2,0.85)');
-    x.fillStyle = '#fff'; x.beginPath(); x.ellipse(44, 40, 19, 16, -0.4, 0, Math.PI * 2); x.fill();
-    x.globalAlpha = 0.9; x.beginPath(); x.arc(84, 86, 8, 0, Math.PI * 2); x.fill();
+    // Concept-art eye: dark glossy brown, warmer at the bottom, big soft highlight up-left and
+    // a small one down-right. Thin dark rim only.
+    disc(62, '#24120a');
+    const g = x.createRadialGradient(64, 96, 6, 64, 70, 60);
+    g.addColorStop(0, '#9a5e34'); g.addColorStop(0.45, '#5a321c'); g.addColorStop(1, '#2a160c');
+    x.fillStyle = g; x.beginPath(); x.arc(64, 64, 57, 0, Math.PI * 2); x.fill();
+    x.fillStyle = 'rgba(20,8,3,0.55)'; x.beginPath(); x.arc(64, 60, 30, 0, Math.PI * 2); x.fill();
+    x.fillStyle = '#fff'; x.beginPath(); x.ellipse(46, 40, 15, 13, -0.5, 0, Math.PI * 2); x.fill();
+    x.globalAlpha = 0.85; x.beginPath(); x.arc(84, 84, 7, 0, Math.PI * 2); x.fill();
+    x.globalAlpha = 0.35; x.beginPath(); x.arc(30, 64, 4, 0, Math.PI * 2); x.fill();
+    x.globalAlpha = 1;
   }
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace; t.center.set(0.5, 0.5);
@@ -298,10 +308,10 @@ export function anchorsOf(P) {
     shoulder: [P.bl * 0.28, P.sh, P.bw * 0.27],     // z mirrored for left/right
     hip: [-P.bl * 0.3, P.sh * 0.98, P.bw * 0.27],
     tail: [-P.bl * 0.5, P.bw * 0.32],               // body-local x, y
-    eye: onHead(0.74, 0.12, 0.42, 0.005),           // head-local, right eye (z mirrored)
+    eye: onHead(0.8, 0.04, 0.5, 0.0),               // head-local, right eye (z mirrored)
     nose: onHead(1, -0.18, 0, -0.02),
     mouth: onHead(1, -0.42, 0, 0.004),
-    ear: onHead(-0.15, 0.55, 0.8, -0.02).toArray(), // head-local attach on the skull side
+    ear: onHead(-0.05, 0.7, 0.72, -0.03).toArray(), // head-local attach high on the skull side
   };
 }
 
@@ -310,16 +320,16 @@ export function buildDogAssets() {
   const t0 = performance.now();
   // Curl lobes: few and big, so the toon light turns each into a flat "cloud" like the sprite.
   const head = bakePart(18, headSdf, (d, P) => {
-    const face = smooth(0.55, 0.9, d.x) * smooth(-0.6, 0.1, d.y); // short fur on the muzzle
+    const face = smooth(0.4, 0.75, d.x) * smooth(-0.7, 0.35, d.y); // smooth face: eyes, muzzle
     const patch = smooth(0.42, 0.8, d.x) * smooth(0.12, -0.2, d.y);
-    return { amp: 0.11 * P.hw * (1 - 0.85 * face), shade: 1, patch };
-  }, 2.7);
-  const body = bakePart(16, bodySdf, (d) => ({ amp: 0.13, shade: 1,
-    patch: smooth(0.35, 0.8, d.x) * smooth(0.25, -0.25, d.y) }), 2.4);
+    return { amp: 0.06 * P.hw * (1 - 0.9 * face), shade: 1, patch };
+  }, 3.2);
+  const body = bakePart(16, bodySdf, (d) => ({ amp: 0.07, shade: 1,
+    patch: smooth(0.35, 0.8, d.x) * smooth(0.25, -0.25, d.y) }), 2.9);
   const limb = bakeLimb();
   const ball = bakeFluffBall(5, 2.2, 0.16);
-  const ear = bakeBlob(earSdf(), [0, -0.5, 0], 5, 3.2, 0.14);
-  const tail = bakeBlob(tailSdf(), [0.12, 0.62, 0], 5, 3.0, 0.16);
+  const ear = bakeBlob(earSdf(), [0, -0.5, 0], 5, 3.2, 0.08);
+  const tail = bakeBlob(tailSdf(), [0.12, 0.62, 0], 5, 3.4, 0.07);
   for (const g of [limb, ball, ear, tail]) g.setAttribute('furPatch', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count), 1));
   const anchors = PROFILES.map(anchorsOf);
   return {
