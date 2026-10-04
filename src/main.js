@@ -3,12 +3,13 @@ import { Game, FINISH_XP } from './game.js';
 import { loadArt } from './art.js';
 import { Renderer, refreshSafeArea } from './render.js';
 import { Input } from './input.js';
-import { unlock, sfx, isMuted, setMuted } from './audio.js';
+import { unlock, sfx, music, isMuted, setMuted } from './audio.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('game');
 const STEP = 1 / CONFIG.simHz;
 const MEDALS = ['🥇', '🥈', '🥉'];
+const sizeOf = (d) => d.stage / (CONFIG.stages.length - 1); // 0 = puppy voice, 1 = grown dog
 
 // The 3D renderer (proto/render3d.js) is the default, behind the same interface as the 2D one.
 // ?2d forces the 2D game; if 3D can't start (old Safari, no WebGL) the 2D game takes over quietly.
@@ -27,6 +28,7 @@ document.body.append(pauseOverlay);
 pauseOverlay.querySelector('button').addEventListener('click', () => {
   unlock(); input.reset(); acc = 0; last = performance.now();
   paused = false; input.enabled = screen === null;
+  if (musicWasOn) { music.resume(); musicWasOn = false; }
   pauseOverlay.classList.add('hidden');
 });
 
@@ -42,31 +44,43 @@ const game = new Game({
     const st = CONFIG.stages[d.stage];
     renderer.burst(d.x, d.y, st.coat, 24, 260);
     renderer.floatText(d.x, d.y - d.r * 2, `${st.name}!`, '#ffe45c', Math.max(26, d.r * 0.9));
-    sfx.levelUp();
+    sfx.levelUp(sizeOf(d));
   },
   onFinish(d) {
     if (!d.isPlayer) {
-      if (screen === null) showToast(`${MEDALS[d.place - 1] || '🏁'} ${d.name} — ${d.place}-е место!`);
+      if (screen === null) { showToast(`${MEDALS[d.place - 1] || '🏁'} ${d.name} — ${d.place}-е место!`); sfx.rivalDone(); }
       return;
     }
     renderer.burst(d.x, d.y, '#ffd23f', 40, 320);
-    sfx.win();
+    music.stop(0.5);
+    sfx.win(sizeOf(d));
     setTimeout(showFinish, 1400);
   },
   onShove(att, vic) {
     if (screen !== null || (!att.isPlayer && !vic.isPlayer)) return;
     renderer.burst((att.x + vic.x) / 2, (att.y + vic.y) / 2, '#ffffff', 12, 200);
-    sfx.boing();
+    sfx.boing(vic.isPlayer);
+    if (att.isPlayer) sfx.bark(sizeOf(att), 0.4);
     if (vic.isPlayer) showToast(`💥 ${att.name} толкает тебя!`);
   },
   onCountdown(n) {
     showCountdown(n ? String(n) : 'Вперёд!');
     sfx.beep(!n);
+    if (!n) { music.start(); sfx.bark(sizeOf(game.player), 0.5, 0, 2); }
+  },
+  // Dash: a whoosh and often a happy bark; rivals bark too when they're near you on screen.
+  onDash(d) {
+    if (screen !== null) return;
+    if (d.isPlayer) { sfx.whoosh(); if (Math.random() < 0.6) sfx.bark(sizeOf(d), 0.5); return; }
+    const p = game.player, dx = d.x - p.x, dist = Math.hypot(dx, d.y - p.y), now = performance.now();
+    if (dist > 700 || now - lastRivalBark < 900) return;
+    lastRivalBark = now;
+    sfx.bark(sizeOf(d), 0.4 * (1 - dist / 800), Math.max(-0.8, Math.min(0.8, dx / 500)));
   },
 });
 window.__kf = { game, renderer, input }; // debug handle
 
-let toastTimer = 0;
+let toastTimer = 0, lastRivalBark = 0, musicWasOn = false;
 function showToast(text) {
   const el = $('toast');
   el.textContent = text;
@@ -118,6 +132,7 @@ function begin() {
   renderer.particles.length = 0; renderer.texts.length = 0;
   acc = 0; last = performance.now();
   unlock();
+  music.stop(0.2); musicWasOn = false;
   const name = $('name').value.trim().slice(0, 12);
   try { localStorage.setItem('kf_name', name); } catch {}
   game.start(name || CONFIG.gift.defaultName);
@@ -145,6 +160,7 @@ function suspendRace() {
   input.reset(); acc = 0; last = performance.now();
   if (screen === null && !game.player.finished) {
     paused = true; input.enabled = false;
+    if (music.playing) { music.pause(); musicWasOn = true; }
     pauseOverlay.classList.remove('hidden');
   }
 }
@@ -167,6 +183,7 @@ function updateHud(dt) {
   dashBtn.style.setProperty('--cd', cd.toFixed(3));
   if (cd === 0 && !dashWasReady) {
     dashBtn.classList.remove('ready'); void dashBtn.offsetWidth; dashBtn.classList.add('ready');
+    if (!p.finished) sfx.ready();
   }
   dashWasReady = cd === 0;
   hudStage.textContent = CONFIG.stages[p.stage].name;

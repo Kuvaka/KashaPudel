@@ -67,7 +67,7 @@ function makeDog(name, isPlayer, x, y, skill = 1) {
 
 export class Game {
   constructor(events) {
-    this.events = events; // { onEat, onLevelUp, onFinish, onStart }
+    this.events = events; // { onEat, onLevelUp, onFinish, onShove, onDash, onCountdown }
     this.time = 0;
   }
 
@@ -136,7 +136,7 @@ export class Game {
     d.dashCd = Math.max(0, d.dashCd - dt);
     d.dashT = Math.max(0, d.dashT - dt);
     const dashStart = d.wantDash && d.dashCd === 0 && d.mag > 0.1 && !d.stun && !d.finished;
-    if (dashStart) { d.dashT = DASH.durationSec; d.dashCd = DASH.cooldownSec; }
+    if (dashStart) { d.dashT = DASH.durationSec; d.dashCd = DASH.cooldownSec; this.events.onDash?.(d); }
     let speed = D.baseSpeed * Math.pow(d.r / D.baseRadius, D.speedExp) * (d.dashT > 0 ? DASH.speedMul : 1);
     if (!d.isPlayer) speed *= B.speedMul;
     if (d.finished) speed *= 0.45; // winners stroll around
