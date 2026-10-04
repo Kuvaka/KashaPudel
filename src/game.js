@@ -101,7 +101,7 @@ function makeDog(name, isPlayer, x, y, skill = 1) {
     x, y, px: x, py: y, vx: 0, vy: 0,
     dirX: 0, dirY: 0, mag: 0, wantDash: false, dashT: 0, dashCd: 0,
     face: x < W.w / 2 ? 1 : -1, pop: 0, stun: 0, stunMax: 0, immune: 0, shoveCd: 0, skid: 0,
-    wantPoop: false, poopCd: PO.cooldownSec * rand(0.3, 0.6), yuck: false, yuckImmune: 0, glide: 0, puddle: null,
+    wantPoop: false, poopCd: isPlayer ? 12 : rand(12, 30), yuck: false, yuckImmune: 0, glide: 0, puddle: null,
     finished: 0, place: 0, eaten: 0,
     // bot brain
     skill, think: rand(0, B.thinkSec), wander: rand(0, Math.PI * 2), target: null,
@@ -343,12 +343,18 @@ export class Game {
     d.poopCd = Math.max(0, d.poopCd - dt);
     const want = d.wantPoop; d.wantPoop = false;
     if (!want || d.poopCd > 0 || d.stun > 0 || d.finished || !this.racing) return;
-    d.poopCd = PO.cooldownSec;
+    if (this.poops.length >= PO.max) return; // the field is full: wait, the cooldown isn't spent
     // Just behind the dog (opposite to where it runs, or to where it faces when standing).
     const v = Math.hypot(d.vx, d.vy), bx = v > 20 ? -d.vx / v : -d.face, by = v > 20 ? -d.vy / v : 0;
     const p = { x: clamp(d.x + bx * d.r * 1.1, PO.r, W.w - PO.r), y: clamp(d.y + by * d.r * 1.1, PO.r, W.h - PO.r),
       owner: d, age: 0, rot: rand(0, Math.PI * 2) };
-    if (this.poops.length >= PO.max) this.poops.shift();
+    if (!d.isPlayer) { // bots keep traps sparse: not by a cookie, not by another pile, not in a row
+      if (this.time - (this.lastBotPoop ?? -1e9) < PO.botGapSec) return;
+      if (this.food.some((f) => (f.x - p.x) ** 2 + (f.y - p.y) ** 2 < PO.botFoodGap ** 2)) return;
+      if (this.poops.some((q) => (q.x - p.x) ** 2 + (q.y - p.y) ** 2 < PO.botPileGap ** 2)) return;
+      this.lastBotPoop = this.time;
+    }
+    d.poopCd = d.isPlayer ? PO.cooldownSec : PO.botCooldownSec;
     this.poops.push(p);
     this.events.onPoop?.(d, p);
   }
@@ -363,11 +369,13 @@ export class Game {
     if (!this.poops.length) return;
     for (const d of this.dogs) {
       if (d.finished || d.stun > 0 || d.yuckImmune > 0) continue;
-      const reach = d.r * D.eatReach + PO.r;
+      // Only what is right under the nose counts (not the whole cookie reach).
+      const v = Math.hypot(d.vx, d.vy), fx = v > 20 ? d.vx / v : d.face, fy = v > 20 ? d.vy / v : 0;
+      const mx = d.x + fx * d.r * PO.mouthAhead, my = d.y + fy * d.r * PO.mouthAhead, reach = d.r * PO.mouthR + PO.r;
       for (let i = 0; i < this.poops.length; i++) {
         const p = this.poops[i];
         if (p.owner === d || p.age < PO.armSec) continue;
-        const dx = p.x - d.x, dy = p.y - d.y;
+        const dx = p.x - mx, dy = p.y - my;
         if (dx * dx + dy * dy > reach * reach) continue;
         this.poops.splice(i, 1);
         d.stun = d.stunMax = PO.stunSec;

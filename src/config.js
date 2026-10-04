@@ -79,9 +79,9 @@ export const CONFIG = {
   // poopRandom: how eagerly bots leave a surprise; bonus: cookies for finishing at this level.
   difficulty: {
     order: ['easy', 'medium', 'hard', 'extreme'],
-    easy:    { name: 'Простой',  ico: '🌱', skillAdd: 0,    skillMin: 0,    speedMul: 0.92, think: 1,    aggression: 0.20, rivalRange: 220, hunt: 0,    huntRange: 0,   poopNear: 0.5, poopRandom: 1,   bonus: 80 },
-    medium:  { name: 'Средний',  ico: '🐾', skillAdd: 0.15, skillMin: 0.55, speedMul: 0.95, think: 0.9,  aggression: 0.35, rivalRange: 250, hunt: 0.06, huntRange: 260, poopNear: 0.6, poopRandom: 1.2, bonus: 120 },
-    hard:    { name: 'Сложный',  ico: '🔥', skillAdd: 0.3,  skillMin: 0.75, speedMul: 0.98, think: 0.75, aggression: 0.6,  rivalRange: 300, hunt: 0.2,  huntRange: 340, poopNear: 0.8, poopRandom: 1.6, bonus: 180 },
+    easy:    { name: 'Простой',  ico: '🌱', skillAdd: 0,    skillMin: 0,    speedMul: 0.92, think: 1,    aggression: 0.20, rivalRange: 220, hunt: 0,    huntRange: 0,   poopNear: 0.5, poopRandom: 0,   bonus: 80 },
+    medium:  { name: 'Средний',  ico: '🐾', skillAdd: 0.15, skillMin: 0.55, speedMul: 0.95, think: 0.9,  aggression: 0.35, rivalRange: 250, hunt: 0.06, huntRange: 260, poopNear: 0.6, poopRandom: 0,   bonus: 120 },
+    hard:    { name: 'Сложный',  ico: '🔥', skillAdd: 0.3,  skillMin: 0.75, speedMul: 0.98, think: 0.75, aggression: 0.6,  rivalRange: 300, hunt: 0.2,  huntRange: 340, poopNear: 0.8, poopRandom: 1,   bonus: 180 },
     extreme: { name: 'Экстрим',  ico: '🌶️', skillAdd: 0.5,  skillMin: 0.92, speedMul: 1.0,  think: 0.6,  aggression: 1,    rivalRange: 360, hunt: 0.35, huntRange: 420, poopNear: 1,   poopRandom: 2.5, bonus: 260 },
   },
 
@@ -106,24 +106,30 @@ export const CONFIG = {
   // Spring puddles: low grip (the dog slides), and a dash into one shoots the dog ahead.
   puddles: {
     count: 12, rMin: 70, rMax: 120,
-    grip: 0.5,            // instead of dog.grip while on the water
-    accelMul: 0.6,        // paws slip: speeding up and braking are weaker
-    boostMul: 1.25,       // dashing in: this much faster...
-    boostSec: 0.6,        // ...for this long
+    grip: 1.2,            // instead of dog.grip (3.2) while on the water: a drift, still steerable
+    accelMul: 0.85,       // paws slip a little: speeding up and braking are weaker
+    boostMul: 1.2,        // dashing in: this much faster...
+    boostSec: 0.45,       // ...for this long
   },
 
   // "Surprise": a dog leaves a little pile behind; a rival that runs over it sits 'yuck!' for a
   // while (no growth is lost). Your own piles are harmless to you.
   poop: {
     cooldownSec: 30,
+    botCooldownSec: 45,
     stunSec: 4,
     immuneSec: 6,         // after a 'yuck!', piles can't get you again for this long
     lifeSec: 25,
-    max: 12,              // on the field at once; a new one replaces the oldest
+    max: 6,               // on the field at once; when full, a new one waits (cooldown not spent)
     r: 11,
-    armSec: 0.6,          // a fresh pile is harmless for a moment (dogs right behind can react)
+    armSec: 0.8,          // a fresh pile is harmless for a moment (dogs right behind can react)
+    mouthAhead: 0.65,     // it gets you only under the nose: a circle this far ahead (in r)...
+    mouthR: 0.55,         // ...of this radius (in r), plus the pile's own
     botNearSec: 1.2,      // bots drop one when a rival is this close behind them (in seconds of running)
-    botRandomPerMin: 0.4, // ...or now and then anyway, once the cooldown is over
+    botRandomPerMin: 0.4, // ...or now and then anyway (times the level's poopRandom; 0 on easy)
+    botFoodGap: 45,       // bots don't drop right next to a cookie...
+    botPileGap: 140,      // ...or another pile...
+    botGapSec: 4,         // ...or right after another bot did
   },
 
   race: {

@@ -223,7 +223,8 @@ export function buildSeasonFx(scene, season, { weatherOnly = false } = {}) {
     // cx, cz, hx, hz: the camera's ground centre and half extents; px: screen px per unit.
     update(game, dt, t, cx, cz, hx, hz, px, dogsAt) {
       if (prints) {
-        for (const [d, x, y] of dogsAt) if (!d.finished || Math.hypot(d.vx, d.vy) > 20) prints.track(d, x, y, t);
+        // Only dogs in view leave prints: the buffer then holds a full 10 s trail.
+        for (const [d, x, y] of dogsAt) if (Math.abs(x - cx) < hx + 80 && Math.abs(y - cz) < hz + 80) prints.track(d, x, y, t);
         prints.update(t);
       }
       if (piles) piles.update(game, dt, burst);
