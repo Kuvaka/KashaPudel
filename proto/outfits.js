@@ -15,7 +15,7 @@ import { PROFILES, bodySdf, rayToSurface } from './dogModel.js';
 
 // Placement knobs per kind, in units of P.hw (head) / P.bw (back) / 1 (tail): [x, y, z, rotX, rotY, rotZ, scale].
 export const FIT = {
-  bow: [0.04, 0.5, 0.3, 0.5, 0.25, 0.15, 0.32],
+  bow: [0.04, 0.51, 0.32, 0.35, 0.25, 0.1, 0.29],
   daisy: [0.04, 0.5, 0.3, 0.5, 0.25, 0.15, 0.3],
   crown: [-0.05, 0.56, 0, 0, 0, -0.12, 0.19],
   beret: [-0.06, 0.55, 0, 0.1, 0, -0.25, 0.3],
@@ -24,8 +24,8 @@ export const FIT = {
   tiara: [-0.02, 0.5, 0, 0, 0, -0.18, 0.36],
   collar: [-0.08, -0.42, 0, 0, 0, -0.3, 0.36],
   specs: [0.56, 0.02, 0, 0, 0, -0.05, 0.5], // lenses round the eyes (x 0.475, z ±0.21, r 0.13 hw)
-  satchel: [0.32, -0.02, 0, 0, 0, 0.2, 0.62],
-  wings: [0.3, 0.02, 0, 0, 0, 0.15, 0.8],
+  satchel: [-0.12, 0.03, 0, 0, 0, 0.1, 0.75],
+  wings: [-0.08, 0.03, 0, 0, 0, 0.1, 0.95],
   tail: [0, 0, 0, 0, 0, 0, 0.22],
   pinwheel: [0, 0, 0, 0, 0, 0, 0.3],
   bunny: [-0.05, 0.05, 0, 0, 0, -0.1, 0.5],
@@ -124,7 +124,6 @@ function pawPrint(x, y, cx, cy) {
   if (inEll(x, y, cx, cy, 0.12, 0.1)) return true;
   return [[-0.13, 0.11], [-0.05, 0.17], [0.05, 0.17], [0.13, 0.11]].some(([a, b]) => inEll(x, y, cx + a, cy + b, 0.045, 0.055));
 }
-const frogEyes = [new THREE.Vector3(0.22, 0.9, 0.34).normalize(), new THREE.Vector3(0.22, 0.9, -0.34).normalize()];
 const capeButton = [new THREE.Vector3(0.66, 0.42, 0.62).normalize(), new THREE.Vector3(0.66, 0.42, -0.62).normalize()];
 // Directions d from the body centre (x forward, y up, z side). mask(d) keeps a vertex, paint(d)
 // colours it, gap(d) is the distance from the bare body surface in units of P.bw (it has to clear
@@ -146,10 +145,10 @@ const CUTS = {
     gap: (d) => 0.08 + 0.05 * Math.max(0, 0.3 - d.y),
     paint: (d, L) => d.y < 0.1 + scallop(d, 8, 0.05) || d.x > 0.62 ? L.trim : L.color,
   },
-  bee: {
-    mask: (d) => d.y > -0.6 && d.x < 0.6 && d.x > -0.72,
-    gap: () => 0.07,
-    paint: (d, L) => Math.floor((d.x + 1.17) * 3.6) % 2 ? L.stripe : L.color,
+  bee: { // broad stripes, plain cuffs at both ends
+    mask: (d) => d.y > -0.52 && (d.x < 0.62 || d.y < 0.12) && d.x > -0.76,
+    gap: (d) => 0.085 + (d.x > 0.52 || d.x < -0.65 ? 0.025 : 0),
+    paint: (d, L) => d.x > 0.52 || d.x < -0.65 ? L.color : Math.floor((d.x + 1.17) * 3.0) % 2 ? L.stripe : L.color,
   },
   knit: {
     mask: (d) => d.y > -0.62 && d.x < 0.64 && d.x > -0.74,
@@ -160,16 +159,12 @@ const CUTS = {
       return L.color;
     },
   },
-  frog: {
-    mask: (d) => d.y > -0.58 && d.x < 0.62 && d.x > -0.7,
-    gap: (d) => 0.07 + Math.max(...frogEyes.map((e) => 0.26 * Math.sqrt(Math.max(0, 1 - (e.distanceTo(d) / 0.22) ** 2)))),
+  frog: { // the eyes are separate lobes, see frogHood
+    mask: (d) => d.y > -0.56 && (d.x < 0.63 || d.y < 0.12) && d.x > -0.74,
+    gap: () => 0.085,
     paint: (d, L) => {
-      for (const e of frogEyes) {
-        const r = e.distanceTo(d);
-        if (r < 0.22) return r < 0.17 ? (r < 0.08 ? L.pupil : L.eye) : L.color; // green rim round each eye
-      }
-      if (d.x > 0.54) return shade(L.color, 0.85);
-      return d.y < -0.2 ? L.belly : L.color;
+      if (d.x > 0.52 && d.x < 0.63) return shade(L.color, 0.85);
+      return d.y < -0.12 || d.x > 0.7 ? L.belly : L.color;
     },
   },
   hero: {
@@ -230,17 +225,67 @@ function garment(look) {
   return { mount: 'skin', geo: g };
 }
 
+// Frog hood: two bulging eyes on top of the suit, baked into the same six morph targets.
+function frogHood(look) {
+  const res = garment(look);
+  const forms = PROFILES.map((P) => {
+    const p = [], b = P.bw;
+    for (const side of [-1, 1]) {
+      const c = [-P.bl * 0.22, b * 0.68, side * b * 0.31];
+      p.push(orb(look.color, c, [b * 0.22, b * 0.24, b * 0.22]));
+      p.push(orb(look.eye, [c[0] + b * 0.1, c[1] + b * 0.035, c[2] + side * b * 0.145], [b * 0.145, b * 0.175, b * 0.095], [0, side * 0.4, 0]));
+      p.push(orb(look.pupil, [c[0] + b * 0.16, c[1] + b * 0.035, c[2] + side * b * 0.198], [b * 0.073, b * 0.098, b * 0.05], [0, side * 0.4, 0]));
+      p.push(dot('#ffffff', [c[0] + b * 0.178, c[1] + b * 0.088, c[2] + side * b * 0.224], b * 0.024));
+    }
+    return tight(p);
+  });
+  const eyes = forms[0].clone();
+  eyes.morphTargetsRelative = false;
+  eyes.morphAttributes.position = forms.map((g) => g.attributes.position.clone());
+  eyes.morphAttributes.normal = forms.map((g) => g.attributes.normal.clone());
+  const g = mergeGeometries([res.geo, eyes]);
+  g.computeBoundingBox(); g.computeBoundingSphere(); g.boundingSphere.radius *= 1.3;
+  res.geo.dispose(); eyes.dispose(); forms.forEach((f) => f.dispose());
+  return { mount: 'skin', geo: g };
+}
+
+// Low-poly pieces for the redrawn bow, satchel and wings.
+const orbGeo = new THREE.SphereGeometry(1, 12, 8), dotGeo = new THREE.SphereGeometry(1, 8, 6);
+const orb = (c, pos, scale = 1, rot = [0, 0, 0]) => part(orbGeo, c, pos, rot, scale);
+const dot = (c, pos, scale = 1) => part(dotGeo, c, pos, [0, 0, 0], scale);
+const hoop = (r = 1, t = 0.08, n = 24) => new THREE.TorusGeometry(r, t, 6, n);
+const flat = (draw, depth = 0.12, bevel = 0.06) => extrude(draw, depth, bevel, 6, 2);
+const tube = (pts, r = 0.04, n = 16) => new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts.map((q) => new THREE.Vector3(...q))), n, r, 5, false);
+// Merge and weld shared vertices (fewer vertices, same look).
+function tight(parts) {
+  const raw = merge(parts), g = mergeVertices(raw, 1e-5);
+  raw.dispose(); for (const q of parts) q.dispose();
+  g.computeBoundingBox(); g.computeBoundingSphere();
+  return g;
+}
+// Two straps round the body for backpacks.
+const straps = (color) => [-0.28, 0.3].map((x) => part(hoop(0.6, 0.055, 20), color, [x, -0.28, 0], [0, PI / 2, 0], [1, 0.83, 1]));
+
 // --- Builders: look params → { mount, geo, place(P) → [pos, rot, scale], spin? } -----------------
 const BUILD = {
-  // Bow on the top of the head, a little to one side, like a hair clip.
+  // Bow on the top of the head, a little to one side, like a hair clip: soft loops, folds, short tails.
   bow({ color = '#ff7eb6', knot = color, dots = null }) {
-    const parts = [
-      part(cone, color, [-0.62, 0, 0], [0, 0, PI / 2], [0.55, 0.85, 0.32]),
-      part(cone, color, [0.62, 0, 0], [0, 0, -PI / 2], [0.55, 0.85, 0.32]),
-      part(sphere, knot, [0, 0, 0], [0, 0, 0], [0.3, 0.3, 0.26]),
-    ];
-    if (dots) for (const sx of [-1, 1]) parts.push(part(sphere, dots, [sx * 0.62, 0.12, 0.27], [0, 0, 0], [0.11, 0.11, 0.05]));
-    return { mount: 'head', geo: merge(parts), place: (P) => fit('bow', P) };
+    const parts = [];
+    for (const k of [-1, 1]) {
+      const loop = flat((q) => {
+        q.moveTo(k * 0.12, 0); q.bezierCurveTo(k * 0.42, 0.25, k * 0.76, 0.65, k * 0.96, 0.5);
+        q.bezierCurveTo(k * 1.18, 0.22, k * 1.12, -0.48, k * 0.88, -0.47); q.bezierCurveTo(k * 0.65, -0.46, k * 0.35, -0.2, k * 0.12, 0);
+      }, 0.2, 0.09);
+      parts.push(part(loop, color));
+      parts.push(part(tube([[k * 0.22, 0.01, 0.24], [k * 0.45, 0.1, 0.27], [k * 0.72, 0.12, 0.27]], 0.025, 8), shade(color, 0.8))); // fold
+      parts.push(part(flat((q) => {
+        q.moveTo(k * 0.18, -0.12); q.lineTo(k * 0.48, -0.14); q.quadraticCurveTo(k * 0.65, -0.5, k * 0.68, -0.95);
+        q.lineTo(k * 0.43, -0.8); q.lineTo(k * 0.2, -0.95); q.closePath();
+      }, 0.08, 0.035), color));
+      if (dots) parts.push(dot(dots, [k * 0.82, 0.26, 0.27], [0.09, 0.09, 0.025]));
+    }
+    parts.push(orb(knot, [0, 0, 0.1], [0.25, 0.3, 0.24]));
+    return { mount: 'head', geo: tight(parts), place: (P) => fit('bow', P) };
   },
   // Daisy behind the ear: white petals round a yellow middle, facing sideways.
   daisy({ petal = '#ffffff', middle = '#ffcf3a' }) {
@@ -337,22 +382,26 @@ const BUILD = {
     }
     return { mount: 'head', geo: merge(parts), place: (P) => fit('collar', P) };
   },
-  // Cookie backpack lying on the back, with pink straps round the body.
-  satchel({ cookie = '#d9a05b', chips = '#6b3f2a', strap = '#ff7fae' }) {
-    const parts = [part(cyl, cookie, [0, 0.1, 0], [0, 0, 0], [0.42, 0.16, 0.42])];
-    for (const [x, z] of [[0.15, 0.1], [-0.18, 0.12], [0.02, -0.2], [-0.12, -0.05], [0.22, -0.15]]) parts.push(part(sphere, chips, [x, 0.19, z], [0, 0, 0], [0.06, 0.03, 0.06]));
-    parts.push(part(torus(0.5, 0.04, 32), strap, [0.12, -0.42, 0], [0, PI / 2, 0], [1, 0.95, 1]));
-    return { mount: 'back', geo: merge(parts), place: (P) => fit('satchel', P, P.bw) };
+  // Cookie backpack tilted on the back, on two brown straps.
+  satchel({ cookie = '#d9a05b', chips = '#6b3f2a', strap = '#a76e42' }) {
+    const cake = [orb(shade(cookie, 0.78), [0, 0, 0], [0.64, 0.15, 0.55]), orb(cookie, [0, 0.12, 0], [0.61, 0.14, 0.52])];
+    for (const [x, z] of [[-0.28, -0.15], [0.22, -0.2], [0.05, 0.2], [-0.3, 0.2], [0.3, 0.1]]) cake.push(orb(chips, [x, 0.245, z], [0.09, 0.035, 0.075]));
+    const parts = [...straps(strap), part(tight(cake), null, [0, 0.38, 0], [0, 0, -0.65])];
+    parts.push(part(hoop(0.1, 0.025, 12), '#e5b365', [0.33, -0.2, 0.57])); // buckle
+    return { mount: 'back', geo: tight(parts), place: (P) => fit('satchel', P, P.bw) };
   },
-  // Fairy wings: two pairs of petal wings on the back.
+  // Fairy wings: two pairs of rounded petal wings on the back.
   wings({ color = '#e6dcff', edge = '#ffc4e1' }) {
+    const petal = flat((q) => {
+      q.moveTo(0, -0.2); q.bezierCurveTo(-0.35, 0.1, -0.47, 0.85, -0.08, 1.02); q.bezierCurveTo(0.38, 1.05, 0.43, 0.33, 0, -0.2);
+    }, 0.05, 0.05);
     const parts = [];
-    for (const s of [-1, 1]) {
-      parts.push(part(sphere, color, [-0.12, 0.38, s * 0.42], [s * 0.7, 0.35, 0.55], [0.5, 0.05, 0.3]));
-      parts.push(part(sphere, edge, [-0.32, 0.18, s * 0.34], [s * 0.45, 0.2, -0.2], [0.32, 0.045, 0.2]));
+    for (const k of [-1, 1]) {
+      parts.push(part(petal, color, [-0.06, 0.05, k * 0.1], [k * 0.62, 0, -0.23], [0.75, 0.8, 1]));
+      parts.push(part(petal, edge, [-0.3, 0.04, k * 0.13], [k * 0.68, 0, 0.5], [0.66, 0.6, 1]));
     }
-    parts.push(part(sphere, edge, [-0.12, 0.08, 0], [0, 0, 0], 0.08));
-    return { mount: 'back', flap: true, geo: merge(parts), place: (P) => fit('wings', P, P.bw) };
+    parts.push(orb(edge, [-0.05, 0.02, 0], 0.1));
+    return { mount: 'back', flap: true, geo: tight(parts), place: (P) => fit('wings', P, P.bw) };
   },
   // Fluffy pompom on the tail.
   pompom({ color = '#ff8fc8' }) {
@@ -551,7 +600,7 @@ const BUILD = {
     return { mount: 'paw', geo: merge(parts) };
   },
   propeller(look) { return BUILD.pinwheel({ blades: [look.blades ?? '#5ab0ff', look.blades ?? '#5ab0ff'] }); },
-  garment,
+  garment: (look) => look.cut === 'frog' ? frogHood(look) : garment(look),
 };
 
 const looks = new Map();
