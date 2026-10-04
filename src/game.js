@@ -124,6 +124,7 @@ export class Game {
     this.level = DIFF[level] ? level : 'easy';
     const lv = this.lv = DIFF[this.level];
     this.poops = [];
+    this.lastBotPoop = -Infinity; // reset the shared bot drop timer for this race
     this.countdown = RACE.countdownSec;
     this.places = 0;
     this.food = [];
@@ -368,7 +369,7 @@ export class Game {
   eatPoops() {
     if (!this.poops.length) return;
     for (const d of this.dogs) {
-      if (d.finished || d.stun > 0 || d.yuckImmune > 0) continue;
+      if (d.finished || d.stun > 0 || d.immune > 0 || d.yuckImmune > 0) continue;
       // Only what is right under the nose counts (not the whole cookie reach).
       const v = Math.hypot(d.vx, d.vy), fx = v > 20 ? d.vx / v : d.face, fy = v > 20 ? d.vy / v : 0;
       const mx = d.x + fx * d.r * PO.mouthAhead, my = d.y + fy * d.r * PO.mouthAhead, reach = d.r * PO.mouthR + PO.r;
@@ -394,7 +395,7 @@ export class Game {
     if (!this.obstacles.length) return;
     for (const o of this.obstacles) if (o.gone > 0) o.gone = Math.max(0, o.gone - dt);
     for (const d of this.dogs) {
-      if (d.finished || d.stun > 0 || d.bumpImmune > 0) continue;
+      if (d.finished || d.stun > 0 || d.immune > 0 || d.bumpImmune > 0) continue;
       const v = Math.hypot(d.vx, d.vy);
       for (const o of this.obstacles) {
         if (o.gone > 0) continue;

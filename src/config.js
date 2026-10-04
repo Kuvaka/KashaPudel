@@ -65,11 +65,11 @@ export const CONFIG = {
   obstacles: {
     stunSec: 3,
     immuneSec: 4,         // after getting up: no second bump right away
-    minSpeed: 110,        // drifts and leaves only stop a dog that runs into them
+    minSpeed: 140,        // drifts and leaves only stop a dog that runs into them
     regrowSec: 15,
-    summer: { kind: 'mud', count: 9, rMin: 48, rMax: 70, hit: 0.75 },
-    autumn: { kind: 'leaves', count: 22, rMin: 24, rMax: 32, hit: 0.7 },
-    winter: { kind: 'drift', count: 18, rMin: 28, rMax: 40, hit: 0.75 },
+    summer: { kind: 'mud', count: 7, rMin: 48, rMax: 70, hit: 0.75 },
+    autumn: { kind: 'leaves', count: 16, rMin: 24, rMax: 32, hit: 0.7 },
+    winter: { kind: 'drift', count: 14, rMin: 28, rMax: 40, hit: 0.75 },
   },
 
   // Difficulty: how sharp and pushy the bots are. easy is the original balance. skillAdd /
@@ -79,10 +79,10 @@ export const CONFIG = {
   // poopRandom: how eagerly bots leave a surprise; bonus: cookies for finishing at this level.
   difficulty: {
     order: ['easy', 'medium', 'hard', 'extreme'],
-    easy:    { name: 'Простой',  ico: '🌱', skillAdd: 0,    skillMin: 0,    speedMul: 0.92, think: 1,    aggression: 0.20, rivalRange: 220, hunt: 0,    huntRange: 0,   poopNear: 0.5, poopRandom: 0,   bonus: 80 },
-    medium:  { name: 'Средний',  ico: '🐾', skillAdd: 0.15, skillMin: 0.55, speedMul: 0.95, think: 0.9,  aggression: 0.35, rivalRange: 250, hunt: 0.06, huntRange: 260, poopNear: 0.6, poopRandom: 0,   bonus: 120 },
-    hard:    { name: 'Сложный',  ico: '🔥', skillAdd: 0.3,  skillMin: 0.75, speedMul: 0.98, think: 0.75, aggression: 0.6,  rivalRange: 300, hunt: 0.2,  huntRange: 340, poopNear: 0.8, poopRandom: 1,   bonus: 180 },
-    extreme: { name: 'Экстрим',  ico: '🌶️', skillAdd: 0.5,  skillMin: 0.92, speedMul: 1.0,  think: 0.6,  aggression: 1,    rivalRange: 360, hunt: 0.35, huntRange: 420, poopNear: 1,   poopRandom: 2.5, bonus: 260 },
+    easy:    { name: 'Простой',  ico: '🌱', skillAdd: 0,     skillMin: 0,    speedMul: 0.92, think: 1,    aggression: 0.2,  rivalRange: 220, hunt: 0,    huntRange: 0,   poopNear: 0.5,  poopRandom: 0,   bonus: 80 },
+    medium:  { name: 'Средний',  ico: '🐾', skillAdd: 0.05,  skillMin: 0.45, speedMul: 0.94, think: 1,    aggression: 0.3,  rivalRange: 240, hunt: 0.04, huntRange: 240, poopNear: 0.55, poopRandom: 0,   bonus: 120 },
+    hard:    { name: 'Сложный',  ico: '🔥', skillAdd: 0.25,  skillMin: 0.65, speedMul: 0.98, think: 0.8, aggression: 0.6,  rivalRange: 280, hunt: 0.12,  huntRange: 300, poopNear: 0.8, poopRandom: 1,   bonus: 180 },
+    extreme: { name: 'Экстрим',  ico: '🌶️', skillAdd: 0.3,  skillMin: 0.75, speedMul: 1,  think: 0.7,  aggression: 0.9,    rivalRange: 340, hunt: 0.18, huntRange: 340, poopNear: 1,   poopRandom: 2.5, bonus: 260 },
   },
 
   // Shoves: a dashing dog knocks a rival back; the rival tumbles, sits dazed for a moment and
