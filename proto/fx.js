@@ -47,7 +47,75 @@ const puffTex = () => canvasTex(64, 64, (x) => {
   x.fillStyle = g; x.fillRect(0, 0, 64, 64);
 });
 
+
+// Dash trails bought in the wardrobe: one atlas, one Points batch for every kind.
+// Cells: 0 crumb, 1 heart, 2 petal, 3 bubble, 4 star, 5 soft dot (tinted: rainbow).
+const TRAIL_CELL = { crumbs: 0, hearts: 1, petals: 2, bubbles: 3, stars: 4, rainbow: 5 };
+const RAINBOW = ['#ff8fa3', '#ffc078', '#ffe066', '#9be38b', '#8cc8ff', '#c5a3ff'].map((c) => new THREE.Color(c));
+const trailTex = () => canvasTex(256, 128, (x) => {
+  const cell = (i, draw) => { x.save(); x.translate((i % 4) * 64 + 32, Math.floor(i / 4) * 64 + 32); draw(); x.restore(); };
+  const ink = '#6b3f2a';
+  x.lineJoin = 'round';
+  cell(0, () => { // cookie crumb
+    x.fillStyle = '#e0a35c'; x.strokeStyle = ink; x.lineWidth = 3;
+    x.beginPath(); x.moveTo(-18, -6); x.lineTo(-4, -20); x.lineTo(16, -12); x.lineTo(20, 8); x.lineTo(2, 20); x.lineTo(-16, 12); x.closePath(); x.fill(); x.stroke();
+    x.fillStyle = ink; for (const [a, b] of [[-6, -4], [8, 4], [-2, 10]]) { x.beginPath(); x.arc(a, b, 3, 0, 7); x.fill(); }
+  });
+  cell(1, () => { // heart
+    x.fillStyle = '#ff6f9f'; x.strokeStyle = '#ffffff'; x.lineWidth = 4;
+    x.beginPath(); x.moveTo(0, 22); x.bezierCurveTo(-30, 2, -22, -24, 0, -10); x.bezierCurveTo(22, -24, 30, 2, 0, 22); x.fill(); x.stroke();
+  });
+  cell(2, () => { // petal
+    x.fillStyle = '#ffb3d1'; x.strokeStyle = '#ff8fbd'; x.lineWidth = 3;
+    x.beginPath(); x.ellipse(0, 0, 12, 24, 0.5, 0, 7); x.fill(); x.stroke();
+  });
+  cell(3, () => { // soap bubble
+    const g = x.createRadialGradient(0, 0, 10, 0, 0, 26);
+    g.addColorStop(0, 'rgba(200,240,255,0.15)'); g.addColorStop(0.85, 'rgba(170,220,255,0.55)'); g.addColorStop(1, 'rgba(255,190,240,0.9)');
+    x.fillStyle = g; x.beginPath(); x.arc(0, 0, 26, 0, 7); x.fill();
+    x.fillStyle = 'rgba(255,255,255,0.95)'; x.beginPath(); x.ellipse(-9, -10, 7, 4, -0.7, 0, 7); x.fill();
+  });
+  cell(4, () => { // star
+    x.fillStyle = '#ffd84a'; x.strokeStyle = '#ffffff'; x.lineWidth = 4;
+    x.beginPath();
+    for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, r = i % 2 ? 11 : 26; x.lineTo(Math.cos(a) * r, Math.sin(a) * r); }
+    x.closePath(); x.fill(); x.stroke();
+  });
+  cell(5, () => { // soft dot
+    const g = x.createRadialGradient(0, 0, 4, 0, 0, 30);
+    g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.6, 'rgba(255,255,255,0.9)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+    x.fillStyle = g; x.beginPath(); x.arc(0, 0, 30, 0, 7); x.fill();
+  });
+});
+const trailMaterial = (map) => new THREE.ShaderMaterial({
+  uniforms: { uMap: { value: map }, uPx: { value: 1 } },
+  vertexShader: `
+    attribute float aSize; attribute float aCell; attribute float aAlpha; attribute float aRot; attribute vec3 aColor;
+    uniform float uPx;
+    varying float vCell; varying float vAlpha; varying float vRot; varying vec3 vColor;
+    void main() {
+      vCell = aCell; vAlpha = aAlpha; vRot = aRot; vColor = aColor;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      gl_PointSize = aSize * uPx;
+    }`,
+  fragmentShader: `
+    uniform sampler2D uMap;
+    varying float vCell; varying float vAlpha; varying float vRot; varying vec3 vColor;
+    void main() {
+      vec2 p = gl_PointCoord - 0.5, c = vec2(cos(vRot), sin(vRot));
+      p = vec2(c.x * p.x - c.y * p.y, c.y * p.x + c.x * p.y) + 0.5;
+      if (p.x < 0.0 || p.x > 1.0 || p.y < 0.0 || p.y > 1.0) discard;
+      vec2 cell = vec2(mod(vCell, 4.0), floor(vCell / 4.0));
+      vec4 t = texture2D(uMap, vec2((cell.x + p.x) / 4.0, 1.0 - (cell.y + p.y) / 2.0));
+      if (t.a * vAlpha < 0.01) discard;
+      gl_FragColor = vec4(t.rgb * vColor, t.a * vAlpha);
+      #include <colorspace_fragment>
+    }`,
+  transparent: true, depthWrite: false,
+});
+
 const easeOut = (x) => 1 - (1 - x) ** 3;
+const WHITE = new THREE.Color(1, 1, 1);
 const UP = new THREE.Vector3(0, 1, 0), Z = new THREE.Vector3(0, 0, 1);
 const tv = new THREE.Vector3(), tx = new THREE.Vector3(), ty = new THREE.Vector3(), tz = new THREE.Vector3();
 const tm = new THREE.Matrix4();
@@ -82,6 +150,40 @@ export class FX {
       return { s, t: 0, life: 0, r: 1, v: new THREE.Vector3() };
     });
     this.pi = 0; this.ri = 0;
+    // Trails: pooled particles in one Points draw.
+    const N = this.maxTrail = 240, geo = new THREE.BufferGeometry();
+    for (const [k, n] of [['position', 3], ['aSize', 1], ['aCell', 1], ['aAlpha', 1], ['aRot', 1], ['aColor', 3]]) {
+      geo.setAttribute(k, new THREE.BufferAttribute(new Float32Array(N * n), n).setUsage(THREE.DynamicDrawUsage));
+    }
+    geo.setDrawRange(0, 0);
+    this.trailPts = new THREE.Points(geo, trailMaterial(trailTex()));
+    this.trailPts.frustumCulled = false; this.trailPts.renderOrder = 6;
+    scene.add(this.trailPts);
+    this.parts = Array.from({ length: N }, () => ({ p: new THREE.Vector3(), v: new THREE.Vector3(), t: 1, life: 1,
+      size: 1, cell: 0, rot: 0, vr: 0, g: 0, c: new THREE.Color() }));
+    this.ti = 0; this.rbi = 0;
+  }
+
+  // `count` new trail particles of `kind` behind a dashing dog.
+  trail(kind, pos, dir, R, count) {
+    const cell = TRAIL_CELL[kind] ?? 5, rb = kind === 'rainbow';
+    tx.set(-dir.z, 0, dir.x);
+    for (let i = 0; i < count; i++) {
+      const band = rb ? 6 : 1, jit = (Math.random() - 0.5) * R * 0.5;
+      for (let j = 0; j < band; j++) {
+        const T = this.parts[this.ti++ % this.maxTrail];
+        T.p.copy(pos).addScaledVector(dir, -R * 0.7).addScaledVector(tx, rb ? 0 : jit);
+        T.p.y = rb ? R * (1.25 - j * 0.13) : R * (0.4 + Math.random() * 0.9);
+        T.v.copy(dir).multiplyScalar(-R * (rb ? 0.2 : 0.8)).addScaledVector(tx, rb ? 0 : jit * 0.8);
+        T.v.y = rb ? 0 : R * (kind === 'bubbles' ? 0.9 : kind === 'crumbs' ? 1.2 : 0.5);
+        T.g = kind === 'crumbs' ? R * 5 : kind === 'petals' ? R * 0.6 : 0;
+        // Short-lived, and crumbs vanish before they land: nothing on the grass may look like food.
+        T.t = 0; T.life = rb ? 0.5 : kind === 'crumbs' ? 0.35 + Math.random() * 0.1 : 0.5 + Math.random() * 0.3;
+        T.size = R * (rb ? 0.3 : kind === 'crumbs' ? 0.2 + Math.random() * 0.08 : 0.3 + Math.random() * 0.15);
+        T.cell = cell; T.rot = Math.random() * 6.28; T.vr = rb || kind === 'bubbles' ? 0 : (Math.random() - 0.5) * 8;
+        T.c.copy(rb ? RAINBOW[j] : WHITE);
+      }
+    }
   }
 
   ring(pos, normal, r0, r1, life, alpha, tex, ey = 1) {
@@ -127,7 +229,8 @@ export class FX {
     }
   }
 
-  update(dt, camera) {
+  update(dt, camera, pxPerUnit = 1) {
+    this.updateTrail(dt, pxPerUnit);
     for (const R of this.rings) {
       if (!R.m.visible) continue;
       R.t += dt;
@@ -164,5 +267,34 @@ export class FX {
       P.s.scale.setScalar(P.r * (0.6 + 0.9 * easeOut(k)));
       P.s.material.opacity = 0.9 * (1 - k);
     }
+  }
+
+  // Fitting room treadmill: the dog runs in place, so the effects slide back instead.
+  drift(dx, dz) {
+    for (const T of this.parts) if (T.t < T.life) { T.p.x += dx; T.p.z += dz; }
+    for (const S of this.streaks) if (S.t < S.life) { S.p.x += dx; S.p.z += dz; }
+    for (const P of this.puffs) if (P.s.visible) { P.s.position.x += dx; P.s.position.z += dz; }
+    for (const R of this.rings) if (R.m.visible) { R.m.position.x += dx; R.m.position.z += dz; }
+  }
+
+  updateTrail(dt, pxPerUnit) {
+    const g = this.trailPts.geometry, A = g.attributes;
+    let n = 0;
+    for (const T of this.parts) {
+      if (T.t >= T.life) continue;
+      T.t += dt;
+      const k = T.t / T.life;
+      if (k >= 1) continue;
+      T.v.y -= T.g * dt; T.p.addScaledVector(T.v, dt); T.rot += T.vr * dt;
+      A.position.setXYZ(n, T.p.x, Math.max(T.p.y, T.size * 0.3), T.p.z);
+      A.aSize.setX(n, T.size * (k < 0.15 ? k / 0.15 : 1));
+      A.aCell.setX(n, T.cell); A.aRot.setX(n, T.rot);
+      A.aAlpha.setX(n, k < 0.6 ? 1 : (1 - k) / 0.4);
+      A.aColor.setXYZ(n, T.c.r, T.c.g, T.c.b);
+      n++;
+    }
+    if (n) for (const a of Object.values(A)) a.needsUpdate = true;
+    g.setDrawRange(0, n);
+    this.trailPts.material.uniforms.uPx.value = pxPerUnit;
   }
 }

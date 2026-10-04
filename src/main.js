@@ -4,6 +4,8 @@ import { loadArt } from './art.js';
 import { Renderer, refreshSafeArea } from './render.js';
 import { Input } from './input.js';
 import { unlock, sfx, music, isMuted, setMuted } from './audio.js';
+import { Wallet } from './wallet.js';
+import { Wardrobe, outfitOf, botOutfit, itemById } from './wardrobe.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('game');
@@ -19,7 +21,10 @@ async function make3d() {
 }
 const renderer = (!new URLSearchParams(location.search).has('2d') && await make3d()) || new Renderer(canvas, await loadArt());
 const input = new Input(canvas, $('dash'));
+const WR = CONFIG.wardrobe;
+const wallet = new Wallet(WR.starterGift);
 let screen = 'start';
+let runId = null, finResult = null; // the paid race and what its finish brought
 let paused = false;
 const pauseOverlay = document.createElement('div');
 pauseOverlay.className = 'screen hidden';
@@ -35,6 +40,7 @@ pauseOverlay.querySelector('button').addEventListener('click', () => {
 const game = new Game({
   onEat(d, f) {
     if (!d.isPlayer) return;
+    if (runId) wallet.credit(runId, d.eaten); // saved as you go: closing the game mid-race keeps them
     renderer.burst(f.x, f.y, f.type.id === 'bone' ? '#ffd23f' : '#c98a4b', f.type.xp > 1 ? 8 : 4, 90);
     if (f.type.xp > 1) renderer.floatText(f.x, f.y - 10, `+${f.type.xp}`, f.type.id === 'bone' ? '#ffd23f' : '#fff', 18);
     sfx.chomp(f.type.xp > 1);
@@ -52,6 +58,7 @@ const game = new Game({
       return;
     }
     renderer.burst(d.x, d.y, '#ffd23f', 40, 320);
+    if (runId) { const id = runId; runId = null; finResult = wallet.finish(id, d.eaten, WR.finishBonus); }
     music.stop(0.5);
     sfx.win(sizeOf(d));
     setTimeout(showFinish, 1400);
@@ -78,7 +85,7 @@ const game = new Game({
     sfx.bark(sizeOf(d), 0.4 * (1 - dist / 800), Math.max(-0.8, Math.min(0.8, dx / 500)));
   },
 });
-window.__kf = { game, renderer, input }; // debug handle
+window.__kf = { game, renderer, input, wallet }; // debug handle
 
 let toastTimer = 0, lastRivalBark = 0, musicWasOn = false;
 function showToast(text) {
@@ -109,6 +116,11 @@ function showFinish() {
   $('gift-signature').textContent = CONFIG.gift.signature;
   $('fin-place').textContent = `${MEDALS[p.place - 1] || '🏁'} ${p.place}-е место из ${game.dogs.length}`;
   $('fin-stats').innerHTML = `Время: <b>${fmtTime(p.finished)}</b> · Печенья: <b>${p.eaten}</b>`;
+  const bank = $('fin-bank');
+  bank.textContent = '';
+  Promise.resolve(finResult).then((r) => {
+    bank.textContent = r ? `🍪 +${r.eaten} и +${r.bonus} за финиш · в копилке ${r.cookies}` : `🍪 В копилке ${wallet.cookies}`;
+  });
   const top = game.leaderboard().filter((d) => d.finished).slice(0, 3);
   $('podium').innerHTML = [1, 0, 2].map((i) => top[i]
     ? `<div class="step s${i + 1} ${top[i].isPlayer ? 'me' : ''}"><span>${escapeHtml(top[i].name)}</span><b>${i + 1}</b></div>`
@@ -121,6 +133,7 @@ function show(name) {
   input.reset();
   paused = false; pauseOverlay.classList.add('hidden');
   for (const id of ['start', 'finish']) $(id).classList.toggle('hidden', id !== name);
+  if (name === 'start' || name === 'finish') syncBank();
   $('hud').classList.toggle('hidden', name !== null);
   input.enabled = name === null;
 }
@@ -136,11 +149,45 @@ function begin() {
   const name = $('name').value.trim().slice(0, 12);
   try { localStorage.setItem('kf_name', name); } catch {}
   game.start(name || CONFIG.gift.defaultName);
+  runId = wallet.startRun(); finResult = null;
+  dressDogs();
   renderer.snapCamera(game.player);
   show(null);
   showCountdown(String(CONFIG.race.countdownSec));
   sfx.beep(false);
 }
+
+// The player wears what was bought; a few rivals get one small thing each, new every race.
+function dressDogs() {
+  game.player.outfit = outfitOf(wallet.p.worn);
+  const bots = game.dogs.filter((d) => !d.isPlayer).sort(() => Math.random() - 0.5);
+  bots.forEach((d, i) => { d.outfit = i < WR.dressedBots ? botOutfit() : null; });
+}
+
+// Cookie bank on the menus, and the dream being saved up for.
+function syncBank() {
+  for (const el of document.querySelectorAll('.cookies')) el.textContent = wallet.cookies;
+  const wish = itemById(wallet.wish), lack = wish ? wish.price - wallet.cookies : 0;
+  for (const id of ['start-wish', 'fin-wish']) {
+    const el = $(id); if (!el) continue;
+    el.textContent = wish ? (lack > 0 ? `⭐ До «${wish.name}»: ещё ${lack} 🍪` : `⭐ Хватает на «${wish.name}»!`) : '';
+  }
+}
+wallet.on(syncBank);
+
+const wardrobe = new Wardrobe({ wallet, renderer, onClose() {
+  game.player.outfit = outfitOf(wallet.p.worn);
+  show(wardrobeFrom);
+} });
+let wardrobeFrom = 'start';
+function openWardrobe() {
+  unlock();
+  wardrobeFrom = screen;
+  show('wardrobe');
+  wardrobe.open();
+}
+$('to-wardrobe').addEventListener('click', openWardrobe);
+$('fin-wardrobe').addEventListener('click', openWardrobe);
 
 let savedName = null;
 try { savedName = localStorage.getItem('kf_name'); } catch {}
@@ -167,7 +214,7 @@ function suspendRace() {
 document.addEventListener('visibilitychange', () => { if (document.hidden) suspendRace(); });
 window.addEventListener('blur', suspendRace);
 
-function onResize() { refreshSafeArea(); renderer.resize(); }
+function onResize() { refreshSafeArea(); renderer.resize(); wardrobe.layout(); }
 window.addEventListener('resize', onResize);
 window.addEventListener('orientationchange', () => setTimeout(onResize, 200));
 document.addEventListener('gesturestart', (e) => e.preventDefault());
@@ -208,6 +255,7 @@ function escapeHtml(s) { return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<'
 let last = performance.now(), acc = 0;
 game.start('');
 game.countdown = 0; // menu backdrop: bots already roam
+dressDogs();
 renderer.snapCamera(game.player);
 show('start');
 
@@ -229,6 +277,7 @@ function frame(now) {
     game.setPlayerInput(0, 0, 0, false);
   }
   acc += dt;
+  if (screen === 'wardrobe') acc = 0; // the field waits while you dress up
   while (acc >= STEP) { game.step(STEP); acc -= STEP; }
   renderer.draw(game, acc / STEP, dt, input.enabled ? input.stickVisual() : null, screen === null);
   if (screen === null) updateHud(dt);

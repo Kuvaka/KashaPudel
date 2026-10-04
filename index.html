@@ -38,6 +38,8 @@
       <p>Гонка роста! Ешь печенье и вырасти из щенка во взрослую собаку быстрее всех.</p>
       <input id="name" maxlength="12" placeholder="Имя собачки" autocomplete="off" enterkeyhint="go">
       <button id="play" class="big">Играть</button>
+      <button id="to-wardrobe" class="mid">🎀 Гардероб <span class="bank">🍪 <b class="cookies">0</b></span></button>
+      <p id="start-wish" class="bank-line"></p>
       <p class="hint">Палец — джойстик · 💨 — рывок: толкни соперника от печенья<br>ПК: мышь или WASD, пробел — рывок</p>
     </div>
   </div>
@@ -52,7 +54,47 @@
       <p id="fin-place" class="place"></p>
       <div id="podium"></div>
       <p id="fin-stats" class="stats"></p>
+      <p id="fin-bank" class="bank-line"></p>
+      <p id="fin-wish" class="bank-line"></p>
       <button id="again" class="big">Ещё раз</button>
+      <button id="fin-wardrobe" class="mid">🎀 Гардероб</button>
+    </div>
+  </div>
+
+  <div id="wardrobe" class="hidden">
+    <div id="wr-preview">
+      <div id="wr-top">
+        <button id="wr-back" class="pill" aria-label="Назад">←</button>
+        <span id="wr-title">Гардероб</span>
+        <span class="pill bank">🍪 <b class="cookies">0</b></span>
+      </div>
+      <div id="wr-tools">
+        <button class="pill" data-stage="0">Щенок</button>
+        <button class="pill" data-stage="5">Взрослая</button>
+        <button class="pill" id="wr-run">🏃</button>
+      </div>
+      <p id="wr-no3d" class="hidden">Наряды видно в 3D-версии игры</p>
+    </div>
+    <div id="wr-sheet">
+      <div id="wr-tabs"></div>
+      <div id="wr-grid"></div>
+      <div id="wr-bar">
+        <div id="wr-info"><b id="wr-name"></b><span id="wr-note"></span></div>
+        <button id="wr-act" class="mid"></button>
+      </div>
+      <button id="wr-backup" class="link">Сохранить или восстановить копилку</button>
+    </div>
+  </div>
+
+  <div id="backup" class="screen hidden">
+    <div class="panel">
+      <h2>Копилка</h2>
+      <p>Скопируй код и сохрани в заметках. Если игра забудет покупки, вставь его сюда.</p>
+      <textarea id="bk-code" rows="4" spellcheck="false"></textarea>
+      <p id="bk-msg" class="hint"></p>
+      <button id="bk-copy" class="mid">Скопировать код</button>
+      <button id="bk-restore" class="mid">Восстановить из кода</button>
+      <button id="bk-close" class="link">Закрыть</button>
     </div>
   </div>
 

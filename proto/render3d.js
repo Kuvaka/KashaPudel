@@ -11,7 +11,7 @@ import { buildMeadow, buildFood } from './meadow.js';
 import { FX } from './fx.js';
 import { LOCK_UNIFORMS } from './toon.js';
 
-const { world: W, dog: D, camera: CAM, food: F } = CONFIG;
+const { world: W, dog: D, camera: CAM, food: F, stages: STAGES } = CONFIG;
 const PITCH = 52 * Math.PI / 180;
 const easeOutBack = (x) => 1 + 2.70158 * (x - 1) ** 3 + 1.70158 * (x - 1) ** 2;
 const fm = new THREE.Matrix4(), fq = new THREE.Quaternion(), fp = new THREE.Vector3(), fs = new THREE.Vector3();
@@ -118,6 +118,7 @@ export class World3D {
   // One frame: dogs at the interpolated positions (alpha between sim steps), food, camera.
   frame(game, alpha, dt, vw, vh) {
     this.time += dt;
+    if (this.studio?.active) { this.studio.frame(dt, vw, vh); return; }
     this.syncVisuals(game);
     for (const d of game.dogs) {
       const x = d.px + (d.x - d.px) * alpha, y = d.py + (d.y - d.py) * alpha;
@@ -125,9 +126,81 @@ export class World3D {
     }
     this.updateFood(game, dt);
     this.updateCamera(game.player, dt, vw, vh);
-    this.fx.update(dt, this.camera);
+    this.fx.update(dt, this.camera, DogVisual.view.pxPerUnit);
     this.renderer.info.reset();
     this.renderer.render(this.scene, this.camera);
+  }
+}
+
+// Fitting room: one dog on a little lawn, its own scene and camera in the same WebGL context.
+// Not part of the race: a stand-in dog object drives the same DogVisual, the game is frozen.
+// rect: the CSS-px box the dog should fill (the part of the screen above the wardrobe panel).
+export class Studio {
+  constructor(world) {
+    this.world = world;
+    const scene = this.scene = new THREE.Scene();
+    scene.background = new THREE.Color('#cfeab4');
+    scene.add(new THREE.HemisphereLight('#fff6e6', '#7a9a50', 2.3));
+    const sun = new THREE.DirectionalLight('#fff0d0', 2.0);
+    sun.position.set(-0.5, 1, 0.7);
+    scene.add(sun);
+    const c = document.createElement('canvas'); c.width = c.height = 128;
+    const g = c.getContext('2d'), grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+    grad.addColorStop(0, '#8fcf62'); grad.addColorStop(0.7, '#9fd873'); grad.addColorStop(1, 'rgba(207,234,180,0)');
+    g.fillStyle = grad; g.fillRect(0, 0, 128, 128);
+    const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+    this.lawn = new THREE.Mesh(new THREE.CircleGeometry(1, 48), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }));
+    this.lawn.rotation.x = -Math.PI / 2; this.lawn.renderOrder = -2;
+    scene.add(this.lawn);
+    this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 5000);
+    this.dog = { stage: 0, xp: 0, drawR: STAGES[0].r, vx: 0, vy: 0, dirX: 0, dirY: 0, mag: 0,
+      dashT: 0, stun: 0, stunMax: 0, immune: 0, skid: 0, finished: 0 };
+    this.visual = new DogVisual(world.assets, scene, false);
+    this.fx = new FX(scene); // its own dash effects, so trails can be tried on
+    this.active = false;
+    this.yaw = 0;          // dog heading; dragging turns it
+    this.run = false;      // trot in place to see clothes move
+    this.rect = { x: 0, y: 0, w: 1, h: 1 };
+    this.time = 0;
+  }
+
+  setStage(st) {
+    const d = this.dog;
+    d.stage = st; d.xp = STAGES[st].xp; d.drawR = STAGES[st].r;
+  }
+
+  frame(dt, vw, vh) {
+    this.time += dt;
+    const d = this.dog, v = this.visual, s = d.drawR;
+    // Running: trot in place and dash every couple of seconds (to show off trails).
+    if (this.run) { this.dashClock = ((this.dashClock ?? 0) + dt) % 2.2; d.dashT = this.dashClock < 0.45 ? 0.45 - this.dashClock : 0; }
+    else d.dashT = 0;
+    const sp = this.run ? D.baseSpeed * Math.pow(s / D.baseRadius, D.speedExp) * (d.dashT ? 1.6 : 0.8) : 0;
+    d.vx = Math.cos(this.yaw) * sp; d.vy = -Math.sin(this.yaw) * sp;
+    if (!this.run) { v.yaw = this.yaw; v.yawRate = 0; }
+    const fx = DogVisual.fx; DogVisual.fx = this.fx; // effects go to the studio scene
+    v.update(d, 0, 0, Math.max(dt, 1e-6), this.time);
+    DogVisual.fx = fx;
+    this.fx.drift(-d.vx * dt, -d.vy * dt);
+    this.lawn.scale.setScalar(s * 2.6);
+
+    // 3/4 view from the front-left, slightly above; the dog centred in rect.
+    const r = this.rect, cam = this.camera, az = Math.PI / 2 - 0.7, pitch = 16 * Math.PI / 180, ty = s * 1.0;
+    cam.position.set(Math.sin(az) * Math.cos(pitch) * 1500, ty + Math.sin(pitch) * 1500, Math.cos(az) * Math.cos(pitch) * 1500);
+    cam.lookAt(0, ty, 0);
+    const H = s * 3.3 * vh / Math.max(1, r.h), Wd = H * vw / vh;
+    const cx = r.x + r.w / 2, cy = r.y + r.h / 2;
+    cam.left = -cx / vw * Wd; cam.right = cam.left + Wd;
+    cam.top = cy / vh * H; cam.bottom = cam.top - H;
+    cam.updateProjectionMatrix();
+
+    const V = DogVisual.view, R = this.world.renderer;
+    R.getDrawingBufferSize(V.res);
+    V.pxPerUnit = V.res.y / H; V.dpr = R.getPixelRatio();
+    LOCK_UNIFORMS.uHalfWidthPx.value = 0.8 * V.dpr;
+    this.fx.update(dt, cam, V.pxPerUnit);
+    R.info.reset();
+    R.render(this.scene, cam);
   }
 }
 
@@ -173,9 +246,16 @@ export class Renderer3D {
     return [(v.x + 1) / 2 * this.vw, (1 - v.y) / 2 * this.vh];
   }
 
+  // The fitting room (created on first use) takes over the WebGL canvas while open.
+  get studio() { return this.world.studio ??= new Studio(this.world); }
+
   draw(game, alpha, dt, stick, hud = true) {
     this.world.frame(game, alpha, dt, this.vw, this.vh);
     const { ctx } = this, cam = this.world.camera;
+    if (this.world.studio?.active) {
+      ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+      return;
+    }
     const ppu = this.vh / (cam.top - cam.bottom); // CSS px per world unit
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.clearRect(0, 0, this.vw, this.vh);

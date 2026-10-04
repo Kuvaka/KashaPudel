@@ -7,6 +7,7 @@ import { PROFILES, MOUTH_N } from './dogModel.js';
 import { CONFIG } from '../src/config.js';
 import { stunPhase } from '../src/game.js';
 import { coatMaterial, outlineMaterial, outline, toonMaterial } from './toon.js';
+import { buildLook, itemMaterial, bootMaterial, coatPalette } from './outfits.js';
 
 const STAGES = CONFIG.stages, LAST = STAGES.length - 1;
 // Colours sampled from the 2D sprites (assets/dog_stage*.png): coat, light muzzle/chest, ears.
@@ -20,6 +21,7 @@ const PALETTE = [
 ];
 const COATS = PALETTE.map((p) => p.coat), EARS = PALETTE.map((p) => p.ear), LIGHTS = PALETTE.map((p) => p.light);
 const SOCKS = [false, false, false, true, true, false]; // fully light paws (brown, grey); others half
+export const NECK = [0.5, 0.45, 0.6]; // collar: share of the head offset (x, y), neck tilt (tuned by eye)
 
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -176,6 +178,15 @@ export class DogVisual {
     this.bodyMesh = new THREE.Mesh(assets.body, this.mat); this.body.add(this.bodyMesh);
     this.tail = new THREE.Group(); this.body.add(this.tail);
     this.tailMesh = new THREE.Mesh(assets.tail, this.mat); this.tail.add(this.tailMesh);
+    // Wardrobe mounts (outfits.js): neck ring on the body, tail tip, top of the back.
+    this.mounts = { head: null, neck: new THREE.Group(), tail: new THREE.Group(), back: new THREE.Group() };
+    this.body.add(this.mounts.neck, this.mounts.back);
+    this.tailMesh.add(this.mounts.tail);
+    this.mounts.tail.position.copy(assets.tail.userData.tip);
+    this.mounts.tail.quaternion.setFromUnitVectors(UP, assets.tail.userData.tipDir);
+    this.items = {};       // slot -> { mesh, look }
+    this.palette = null;   // bought coat colour: 6 stages of { coat, light, ear }
+    this.boots = null;     // boot material
 
     this.head = new THREE.Group(); pose.add(this.head);
     this.headMesh = new THREE.Mesh(assets.head, this.mat); this.head.add(this.headMesh);
@@ -192,6 +203,7 @@ export class DogVisual {
       return { side, pivot, mesh: m, a: 0, v: 0 };
     });
     this.crown = makeCrown(M.gold); this.crown.visible = false; this.head.add(this.crown);
+    this.mounts.head = this.head;
 
     this.swirl = new THREE.Sprite(M.swirl); this.swirl.visible = false; this.swirl.renderOrder = 10;
     pose.add(this.swirl);
@@ -218,6 +230,34 @@ export class DogVisual {
     this.inited = false; this.wasStunned = false;
   }
 
+  // worn: { slot: { id, look } } — what this dog wears now (catalog lookups are the caller's).
+  // The game dog may carry it as d.outfit; update() applies it when the object changes.
+  setOutfit(worn = {}) {
+    for (const slot of Object.keys(this.items)) {
+      if (worn[slot]?.id === this.items[slot].id) continue;
+      this.items[slot].mesh.removeFromParent(); delete this.items[slot];
+    }
+    this.palette = null; this.boots = null; this.trail = null;
+    for (const [slot, it] of Object.entries(worn)) {
+      if (!it?.look) continue;
+      const k = it.look.kind;
+      if (k === 'coat') { this.palette = coatPalette(it.look); continue; }
+      if (k === 'boots') { this.boots = bootMaterial(it.look.color); continue; }
+      if (k === 'trail') { this.trail = it.look.fx; continue; }
+      if (this.items[slot]) continue;
+      const b = buildLook(it.id, it.look);
+      if (!b) continue; // unknown look: owned, just not drawn
+      const mesh = new THREE.Mesh(b.geo, itemMaterial());
+      if (b.mount === 'skin') { // garment: rides on the body mesh and shares its morph weights
+        mesh.morphTargetInfluences = this.bodyMesh.morphTargetInfluences;
+        this.bodyMesh.add(mesh);
+      } else this.mounts[b.mount].add(mesh);
+      outline(mesh, this.lineMat);
+      this.items[slot] = { id: it.id, mesh, b };
+    }
+    for (const L of this.legs) { L.lower.material = this.boots ?? this.mat; L.paw.material = this.boots ?? this.pawMat; }
+  }
+
   shoulderOf(a0, a1, w) { return a0.shoulder.map((v, i) => lerp(v, a1.shoulder[i], w)); }
   hipOf(a0, a1, w) { return a0.hip.map((v, i) => lerp(v, a1.hip[i], w)); }
 
@@ -229,6 +269,7 @@ export class DogVisual {
 
   // x, y: interpolated game position; d: the game dog.
   update(d, x, y, dt, t) {
+    if (d.outfit !== this.outfitRef) { this.outfitRef = d.outfit; this.setOutfit(d.outfit || {}); }
     const A = this.assets, s = d.drawR;
     // --- Evolution: blend the two neighbouring stage profiles -------------------------------
     const st = d.stage, next = Math.min(st + 1, LAST);
@@ -242,10 +283,11 @@ export class DogVisual {
       m.morphTargetInfluences[next] += w;
     }
     // Keep the stage's own coat for most of the interval, then turn into the next one.
-    const cu = smooth((u - 0.7) / 0.3);
-    this.mat.color.set(COATS[st]).lerp(this.color2.set(COATS[next]), cu);
-    this.mat.userData.patch.value.set(LIGHTS[st]).lerp(this.color2.set(LIGHTS[next]), cu);
-    this.earMat.color.set(EARS[st]).lerp(this.color2.set(EARS[next]), cu);
+    const cu = smooth((u - 0.7) / 0.3), pal = this.palette;
+    const C0 = pal ? pal[st] : PALETTE[st], C1 = pal ? pal[next] : PALETTE[next];
+    this.mat.color.set(C0.coat).lerp(this.color2.set(C1.coat), cu);
+    this.mat.userData.patch.value.set(C0.light).lerp(this.color2.set(C1.light), cu);
+    this.earMat.color.set(C0.ear).lerp(this.color2.set(C1.ear), cu);
     this.pawMat.color.copy(this.mat.color).lerp(this.mat.userData.patch.value, SOCKS[cu < 0.5 ? st : next] ? 1 : 0.6);
     // Constant-looking line: ~3% of the dog's on-screen size, in device pixels.
     const V = DogVisual.view;
@@ -377,6 +419,19 @@ export class DogVisual {
 
     // --- Head ---------------------------------------------------------------------------------
     const hb = tmpA.set(lerp(a0.head.x, a1.head.x, w), lerp(a0.head.y, a1.head.y, w) - (a0.bodyY + (a1.bodyY - a0.bodyY) * w), 0);
+    // Wardrobe: collar where the head meets the chest, ring axis along the neck; back on top.
+    const nm = this.mounts.neck;
+    nm.position.set(hb.x * NECK[0], hb.y * NECK[1], 0);
+    nm.quaternion.setFromUnitVectors(UP, tmpB.set(hb.x * NECK[2], hb.y, 0).normalize());
+    this.mounts.back.position.set(-P.bl * 0.05, P.bw * 0.5, 0);
+    for (const slot in this.items) {
+      const { mesh, b } = this.items[slot];
+      if (!b.place) continue;
+      const [p, r, k] = b.place(P);
+      mesh.position.set(p[0], p[1], p[2]); mesh.rotation.set(r[0], r[1], r[2]); mesh.scale.setScalar(k);
+      if (b.spin) mesh.rotation.y = t * (8 + 14 * Math.min(1, norm));
+      if (b.flap) mesh.scale.z = k * (1 + 0.12 * Math.sin(t * (6 + 10 * Math.min(1, norm))));
+    }
     this.head.position.copy(hb.applyMatrix4(this.body.matrix));
     let hYaw = clamp(this.yawRate * 0.08, -0.4, 0.4), hPitch = -pitch * 0.6, hRoll = -roll * 0.5;
     if (!moving && !down) { // idle: look around, cute head tilt
@@ -440,7 +495,7 @@ export class DogVisual {
       this.tongue.rotation.set(0, 0, -0.85 + pant);
       this.tongue.scale.set(P.hw * 0.09, P.hw * 0.014, P.hw * 0.09);
     }
-    this.crown.visible = !!d.finished;
+    this.crown.visible = !!d.finished && !this.items.head; // a bought hat stays on at the finish
     this.crown.position.set(-P.hw * 0.05, P.hw * 0.52, 0);
     this.crown.scale.setScalar(P.hw * 0.17);
 
@@ -580,6 +635,11 @@ export class DogVisual {
         this.windAcc = (this.windAcc ?? 0) + dt * 15; // sparse: a few clear streaks, not a blur
         const n = Math.floor(this.windAcc); this.windAcc -= n;
         fx.dashWind(fxPos, fxDir, s, n);
+        if (this.trail) {
+          this.trailAcc = (this.trailAcc ?? 0) + dt * 26;
+          const m = Math.floor(this.trailAcc); this.trailAcc -= m;
+          fx.trail(this.trail, fxPos, fxDir, s, m);
+        }
       }
     }
     this.wasDash = dashing;

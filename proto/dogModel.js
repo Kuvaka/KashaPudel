@@ -65,7 +65,7 @@ function headSdf(P, brows = true) {
 }
 
 // Body, origin at the body center.
-function bodySdf(P) {
+export function bodySdf(P) {
   const { bl, bw } = P;
   return unionOf([
     [[0, 0, 0], [bl * 0.5, bw * 0.42, bw * 0.46]],
@@ -75,7 +75,7 @@ function bodySdf(P) {
 }
 
 // Distance along dir from the origin to the SDF surface (origin must be inside).
-function rayToSurface(sdf, dir, maxT = 3) {
+export function rayToSurface(sdf, dir, maxT = 3) {
   const p = new THREE.Vector3();
   let lo = 0, hi = 0.02;
   while (hi < maxT) {
@@ -302,6 +302,12 @@ function bakeTailTube() {
   g.setIndex(idx);
   g.computeVertexNormals();
   g.userData.radialOutline = false; // smooth tube: outline along the normal
+  // Wardrobe mount for tail items: on top of the arch, the part of the curl always in view
+  // (the real tip rolls inwards and hides in the plume).
+  let top = 0;
+  for (let i = 1; i <= 100; i++) if (curve(i / 100).y > curve(top / 100).y) top = i;
+  g.userData.tip = curve(top / 100).add(new THREE.Vector3(0, radius(top / 100) * 1.25, 0));
+  g.userData.tipDir = new THREE.Vector3(0, 1, 0);
   return g;
 }
 

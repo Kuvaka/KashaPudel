@@ -233,3 +233,89 @@ button.big:active { transform: translateY(4px); box-shadow: 0 2px 0 var(--ink); 
   .panel p { margin: 4px 0 8px; }
   #dash { width: 72px; height: 72px; font-size: 30px; }
 }
+
+/* Wardrobe: the 3D fitting room shows through the top; cards in a sheet below. */
+button.mid {
+  width: 100%; margin-top: 10px; padding: 10px 0;
+  font: 900 18px system-ui, sans-serif; color: var(--ink);
+  background: linear-gradient(#fff, #ffe7b8); border: 3px solid var(--ink); border-radius: 14px;
+  box-shadow: 0 4px 0 var(--ink); touch-action: manipulation; cursor: pointer;
+}
+button.mid:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--ink); }
+button.mid:disabled { opacity: 0.55; transform: none; box-shadow: 0 4px 0 var(--ink); }
+button.mid .bank { margin-left: 6px; font-size: 15px; opacity: 0.85; }
+button.link {
+  margin-top: 8px; padding: 6px; border: 0; background: none;
+  font: 700 13px system-ui, sans-serif; color: var(--ink); opacity: 0.7; text-decoration: underline;
+  touch-action: manipulation; cursor: pointer;
+}
+.bank-line { font-weight: 800; margin: 2px 0 4px !important; color: #8a4b12; }
+.bank-line:empty { display: none; }
+.pill {
+  padding: 6px 12px; border-radius: 999px; border: 3px solid var(--ink);
+  background: rgba(255, 247, 227, 0.92); font: 800 15px system-ui, sans-serif; color: var(--ink);
+  touch-action: manipulation; cursor: pointer;
+}
+.pill.on { background: var(--gold); }
+
+#wardrobe { position: fixed; inset: 0; display: flex; flex-direction: column; }
+#wr-preview { position: relative; flex: 1 1 45%; min-height: 160px; touch-action: none; }
+#wr-top {
+  position: absolute; left: 0; right: 0; top: 0;
+  padding: calc(8px + var(--sa-top)) calc(10px + var(--sa-right)) 0 calc(10px + var(--sa-left));
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+#wr-title { font: 900 26px system-ui, sans-serif; color: #fff; -webkit-text-stroke: 6px var(--ink); paint-order: stroke fill; }
+#wr-tools { position: absolute; left: 0; right: 0; bottom: 8px; display: flex; justify-content: center; gap: 8px; }
+#wr-no3d { position: absolute; inset: 40% 16px auto; text-align: center; font-weight: 800; }
+#wr-sheet {
+  flex: 0 0 auto; height: 55%; display: flex; flex-direction: column;
+  padding: 8px calc(10px + var(--sa-right)) calc(6px + var(--sa-bottom)) calc(10px + var(--sa-left));
+  background: linear-gradient(var(--panel-top), var(--panel-bottom));
+  border-top: 4px solid var(--ink); border-radius: 22px 22px 0 0;
+}
+#wr-tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 6px; touch-action: pan-x; scrollbar-width: none; }
+#wr-tabs button {
+  flex: 0 0 auto; padding: 5px 10px; border-radius: 12px; border: 3px solid var(--ink);
+  background: #fff; font: 800 14px system-ui, sans-serif; color: var(--ink); touch-action: manipulation;
+}
+#wr-tabs button.on { background: var(--gold); }
+#wr-grid {
+  flex: 1; overflow-y: auto; touch-action: pan-y; -webkit-overflow-scrolling: touch;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; align-content: start;
+  padding: 2px;
+}
+.card {
+  position: relative; padding: 8px 4px 6px; border-radius: 14px; border: 3px solid var(--ink);
+  background: #fff; text-align: center; touch-action: manipulation; cursor: pointer;
+  font: 700 12px system-ui, sans-serif; color: var(--ink);
+}
+.card .ico { font-size: 30px; line-height: 1.1; }
+.card .nm { display: block; min-height: 2.4em; line-height: 1.2; }
+.card .pr { font-weight: 900; }
+.card.dream { background: linear-gradient(#fff, #ffe9f3); }
+.card.rare { background: linear-gradient(#fff, #eef4ff); }
+.card.owned .pr { color: #2f9e2a; }
+.card.worn { box-shadow: 0 0 0 3px var(--green) inset; }
+.card.sel { outline: 3px solid #e64980; outline-offset: 1px; }
+.card.poor .pr { opacity: 0.55; }
+#wr-bar { display: flex; align-items: center; gap: 10px; padding-top: 8px; }
+#wr-info { flex: 1; min-width: 0; font-size: 13px; line-height: 1.25; }
+#wr-info b { display: block; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#wr-act { width: auto; flex: 0 0 auto; margin: 0; padding: 10px 14px; }
+#wr-act.buy { background: linear-gradient(#b6f09a, var(--green)); }
+.card.wish::after { content: '⭐'; position: absolute; top: 2px; right: 4px; font-size: 14px; }
+#wr-tabs button.has::after { content: ' •'; color: #2f9e2a; }
+#wr-top .bank { pointer-events: none; }
+#wr-backup { align-self: center; margin-top: 2px; }
+#bk-code {
+  width: 100%; font: 12px ui-monospace, monospace; border: 3px solid var(--ink); border-radius: 12px; padding: 8px;
+  -webkit-user-select: text; user-select: text; touch-action: manipulation; resize: none;
+}
+
+/* Phone on its side: preview left, cards right. */
+@media (orientation: landscape) {
+  #wardrobe { flex-direction: row; }
+  #wr-sheet { height: auto; width: 55%; border-top: 0; border-left: 4px solid var(--ink); border-radius: 22px 0 0 22px;
+    padding-top: calc(8px + var(--sa-top)); }
+}
