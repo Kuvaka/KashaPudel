@@ -242,7 +242,8 @@ export class Studio {
 
     // 3/4 view from the front-left, slightly above; the dog centred in rect.
     const tallHair=d.outfit?.head?.look?.kind==='hx_hair',fishing=d.outfit?.back?.look?.kind==='hx_pack'||d.outfit?.tail?.look?.kind==='hx_kite';
-    const gearZoom=tallHair?1.85:fishing?1.30:1,gearLift=tallHair?2.3:fishing?1.35:1;
+    const italianTall=['it_lemon','it_olive'].includes(d.outfit?.head?.look?.kind)||d.outfit?.back?.look?.kind==='it_basket';
+    const gearZoom=tallHair?1.85:fishing?1.30:italianTall?1.18:1,gearLift=tallHair?2.3:fishing?1.35:italianTall?1.15:1;
     const r = this.rect, cam = this.camera, az = Math.PI / 2 - 0.7, pitch = 16 * Math.PI / 180, ty = s * gearLift;
     cam.position.set(Math.sin(az) * Math.cos(pitch) * 1500, ty + Math.sin(pitch) * 1500, Math.cos(az) * Math.cos(pitch) * 1500);
     cam.lookAt(0, ty, 0);

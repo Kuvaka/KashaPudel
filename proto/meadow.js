@@ -179,22 +179,33 @@ function groundMaterial(W, H, M, S) {
           c = paving * (1.0 - 0.025 * smoothstep(0.45, 0.65, cl));
         }
 
-        // HxH landmarks continue through the centre as flat, low-contrast paint.
+        // Round 2: map identity remains visible inside the normal follow-camera footprint.
         if(uAdventure>0.5){
           vec2 q=vW-uField*.5;
           if(uAdventure<1.5){
-            float lane=abs(q.y-80.0*sin(q.x*.004));
-            c=mix(c,cPath,(1.0-smoothstep(36.0,43.0,lane))*.9);
-            float r=length(q);float wave=abs(sin(q.x*.020)+q.y/35.0);
-            c=mix(c,cPath,(1.0-smoothstep(.12,.24,wave))*(1.0-smoothstep(210.0,240.0,abs(q.x)))*.65);
-            float ring=1.0-smoothstep(3.0,7.0,abs(r-280.0));c=mix(c,cPath,ring*.5);
+            float r=length(q),ring=min(abs(r-150.0),abs(r-295.0));
+            float lane=min(ring,abs(q.x-42.0*sin(q.y*.012)));
+            c=mix(c,cPathEdge,(1.0-smoothstep(22.0,27.0,lane))*.65);
+            c=mix(c,cPath,(1.0-smoothstep(17.0,22.0,lane))*.98);
+            vec2 wet=mod(q+vec2(125.0,90.0),vec2(310.0,240.0))-vec2(155.0,120.0);
+            float pool=length(wet/vec2(43.0,26.0));
+            c=mix(c,cPath,1.0-smoothstep(.95,1.20,pool));
+            vec3 tide=mix(vec3(.15,.42,.49),vec3(.51,.78,.75),.40+.12*sin(wet.x*.13));
+            float glint=(1.0-smoothstep(.08,.20,abs(sin(wet.y*.27+uTime*.6))))*(1.0-smoothstep(.2,.8,abs(wet.x/43.0)));
+            tide=mix(tide,vec3(.82,.92,.86),glint*.62);
+            c=mix(c,tide,(1.0-smoothstep(.86,1.0,pool))*.88);
           }else if(uAdventure<2.5){
-            vec2 tile=fract(vec2(vW.x/52.0+mod(floor(vW.y/34.0),2.0)*.5,vW.y/34.0));
-            float grout=1.0-smoothstep(.02,.055,min(min(tile.x,1.0-tile.x),min(tile.y,1.0-tile.y)));
-            c=mix(cMid,cLight,.4)-grout*.018;
-            float lane=min(abs(q.x),abs(q.y));float bands=step(.48,fract((q.x+q.y)/75.0));
-            c=mix(c,cPath,(1.0-smoothstep(46.0,52.0,lane))*(.30+.40*bands));
-            float dia=abs(q.x)+abs(q.y);c=mix(c,cPathEdge,(1.0-smoothstep(3.0,7.0,abs(dia-205.0)))*.70);
+            vec2 grid=vec2(q.x+q.y,q.x-q.y)/48.0;
+            float checker=mod(floor(grid.x)+floor(grid.y),2.0);
+            vec2 tile=fract(grid);float edge=min(min(tile.x,1.0-tile.x),min(tile.y,1.0-tile.y));
+            c=mix(cMid,cLight,.26+.30*checker);c=mix(c,cPathEdge,(1.0-smoothstep(.015,.045,edge))*.22);
+            float lane=min(abs(q.x),abs(q.y));
+            c=mix(c,cPath,(1.0-smoothstep(49.0,54.0,lane))*.9);
+            c=mix(c,vec3(.75,.70,.59),(1.0-smoothstep(2.0,4.0,abs(lane-43.0)))*.85);
+            float dia=min(abs(q.x)+abs(q.y),(abs(q.x)+abs(q.y-uField.y*.12))*1.7);c=mix(c,mix(cMid,cPath,.55),1.0-smoothstep(155.0,160.0,dia));
+            c=mix(c,cPath,(1.0-smoothstep(2.0,5.0,abs(dia-169.0)))*.95);
+            vec2 motif=mod(q+42.0,84.0)-42.0;float gem=abs(motif.x)+abs(motif.y);
+            c=mix(c,cPathEdge,(1.0-smoothstep(10.0,13.0,gem))*(1.0-smoothstep(140.0,152.0,dia))*.8);
           }else{
             float check=mod(floor(vW.x/64.0)+floor(vW.y/64.0),2.0);
             c=mix(cMid,cLight,.25+.18*check);
@@ -777,33 +788,36 @@ function cypressGeometry(){
 // Tall scenery stays outside three edges; the south is clear at the low race camera.
 function buildHxhDecor(root,S,W,H,lineMat){
  const PI=Math.PI,parts=[],shadows=[],white=new THREE.Color('#ffffff');
- const add=(g,x,z,k=1,yaw=0)=>{g.scale(k,k,k);g.rotateY(yaw);g.translate(x,0,z);parts.push(g);shadows.push({x,z,r:80*k,m:place(x,.03,z,0,80*k,1,65*k),c:white});};
+ const add=(g,x,z,k=1,yaw=0)=>{if(!g.index){const old=g;g=mergeVertices(g);old.dispose();}g.scale(k,k,k);g.rotateY(yaw);g.translate(x,0,z);parts.push(g);shadows.push({x,z,r:80*k,m:place(x,.03,z,0,80*k,1,65*k),c:white});};
  const b=(c,p,s)=>travelBox(c,p,s);
  function roof(w,d,h,c){return travelPart(new THREE.ConeGeometry(1,1,4),c,[0,h,0],[w,.45*w,d]);}
- function lighthouse(){const p=[travelPart(new THREE.CylinderGeometry(.40,.61,3.15,16),'#efe8d0',[0,1.57,0]),travelPart(new THREE.CylinderGeometry(.425,.44,.30,16),'#b7564f',[0,2.34,0]),b('#476c80',[0,3.25,0],[.76,.55,.76]),b('#ffe1a4',[0,3.26,.394],[.52,.34,.022]),travelPart(new THREE.ConeGeometry(.68,.55,16),'#b9554e',[0,3.78,0]),b('#567b87',[0,.28,.56],[.29,.56,.07])];return travelMerge(p);}
+ function lighthouse(){const p=[travelPart(new THREE.CylinderGeometry(.40,.61,3.15,16),'#efe8d0',[0,1.57,0]),travelPart(new THREE.CylinderGeometry(.425,.44,.30,16),'#b7564f',[0,2.34,0]),b('#476c80',[0,3.25,0],[.76,.55,.76]),b('#ffe1a4',[0,3.26,.394],[.52,.34,.022]),travelPart(new THREE.ConeGeometry(.48,.38,16),'#b9554e',[0,3.69,0]),b('#567b87',[0,.28,.56],[.29,.56,.07])];return travelMerge(p);}
  function house(){const p=[b('#e5d5ae',[0,.52,0],[1.45,1.04,.95]),roof(1.2,.85,1.29,'#b65348'),b('#526b68',[0,.30,.50],[.28,.6,.06])];for(const x of [-.48,.48])p.push(b('#a9d9df',[x,.61,.50],[.31,.36,.06]));return travelMerge(p);}
  function tower(n){const p=[b(n%2?'#59647a':'#69738a',[0,2.10,0],[1.23,4.20,.94]),b('#35445f',[0,4.24,0],[1.39,.16,1.08])];for(let j=0;j<6;j++){p.push(b('#46516c',[0,.50+j*.61,0],[1.3,.065,1.01]));for(const x of [-.37,0,.37])for(const z of [-.49,.49]){p.push(b('#e4be83',[x,.76+j*.61,z],[.21,.33,.035]));p.push(b('#455169',[x,.76+j*.61,z*1.05],[.025,.35,.025]));}}p.push(b('#253b54',[0,.25,.50],[.33,.48,.04]));p.push(b('#d5bd96',[.55,1.12,.53],[.30,.73,.06]),b('#574567',[.55,1.12,.57],[.19,.16,.024]));return travelMerge(p);}
  function card(n){const p=[b('#526c68',[0,.82,0],[1.12,1.64,.12]),b('#f4edcc',[0,.82,.072],[.97,1.48,.027]),b('#aa94ba',[0,.82,.097],[.67,.89,.027]),travelPart(new THREE.OctahedronGeometry(.32),'#67bca7',[0,.82,.17],[.75,1,.25])];const segments=[[0,.16,.13,.023],[.075,.08,.023,.13],[.075,-.08,.023,.13],[0,-.16,.13,.023],[-.075,-.08,.023,.13],[-.075,.08,.023,.13],[0,0,.13,.023]],digits=[[0,1,2,3,4,5],[1,2],[0,1,6,4,3],[0,1,6,2,3],[5,6,1,2],[0,5,6,2,3],[0,5,6,4,3,2],[0,1,2],[0,1,2,3,4,5,6],[0,1,2,3,5,6]];for(const d of digits[n%10]){const[x,y,w,h]=segments[d];p.push(b('#405b64',[-.32+x,1.38+y,.102],[w,h,.015]));}return travelMerge(p);}
  function crystal(){const p=[];for(const [x,y,z,k,c]of [[0,.5,0,1,'#b8a0d9'],[.35,.28,.15,.6,'#83c7ba'],[-.24,.20,.12,.45,'#779fc8']])p.push(travelPart(new THREE.OctahedronGeometry(1),c,[x,y,z],[.29*k,.78*k,.30*k]));return travelMerge(p);}
  function castle(){const p=[b('#dfd9c4',[0,.52,0],[2.2,1.04,.8])];for(const x of [-1,0,1]){p.push(travelPart(new THREE.CylinderGeometry(.28,.32,1.8,10),'#ddd2c6',[x,.90,0]));p.push(travelPart(new THREE.ConeGeometry(.43,.74,10),'#817cba',[x,2.14,0]));p.push(b('#a1c6d3',[x,1.14,.31],[.13,.29,.035]));}p.push(b('#717992',[0,.31,.43],[.40,.62,.05]));return travelMerge(p);}
  if(S.id==='whale'){
-  add(lighthouse(),W*.69,-82,75);add(house(),W*.31,-90,100);
+  add(lighthouse().scale(.70,.31,.70),W*.69,-38,95);add(house().scale(1,.78,1),W*.31,-48,115);
+  // Low painted-like props are passable; they add no gameplay collision.
+  for(const rad of [150,295])for(let i=0;i<22;i++){const a=i*Math.PI*2/22+.016*Math.sin(i*7),x=W*.5+Math.cos(a)*(rad+12),z=H*.5+Math.sin(a)*(rad+12),p=[];for(let j=0;j<5;j++){const t=-.85+j*.425;p.push(travelPart(new THREE.SphereGeometry(1,8,5),j%2?'#e8caa5':'#f6dec1',[Math.sin(t)*3,1.1,Math.cos(t)*3],[1.7,1,5],0).rotateY(t));}add(travelMerge(p),x,z);}
+  for(const[x,z]of [[W*.5-120,H*.5+160],[W*.5+120,H*.5+270]])add(travelPart(new THREE.SphereGeometry(1,8,4),'#909b98',[0,1.5,0],[26,2.2,17]),x,z);
   // Distinctive big leaves form only a low western border; no trees in the sea.
   for(let i=0;i<12;i++){const p=[];for(let j=0;j<4;j++)p.push(travelPart(new THREE.SphereGeometry(1,10,6),'#4d965f',[Math.cos(j*1.6)*.23,.40,Math.sin(j*1.6)*.23],[.20,.10,.60],j*.8));add(travelMerge(p),-70,110+i*(H-220)/11,80);}
  }else if(S.id==='yorknew'){
-  for(let i=0;i<13;i++)add(tower(i),70+i*(W-140)/12,-175,75+(i%3)*9);
-  for(let i=0;i<9;i++){add(tower(i),-170,80+i*(H-160)/8,80,PI/2);add(tower(i+1),W+170,80+i*(H-160)/8,80,-PI/2);}
+  for(let i=0;i<13;i++)add(tower(i),70+i*(W-140)/12,-75,86+(i%3)*8);
+  for(let i=0;i<9;i++){add(tower(i),-75,80+i*(H-160)/8,86,PI/2);add(tower(i+1),W+75,80+i*(H-160)/8,86,-PI/2);}
  }else{
   for(let i=0;i<9;i++){add(card(i),120+i*(W-240)/8,-80,82+(i%3)*7,.12*Math.sin(i));if(i%2===0)add(crystal(),220+i*(W-400)/9,-76,85);}
   for(let i=0;i<8;i++){add(card(i+2),-90,100+i*(H-200)/7,85,PI/2);add(crystal(),W+90,100+i*(H-200)/7,95);}
   add(castle(),W*.5,-330,125);
  }
  const mat=toonMaterial('#ffffff');mat.vertexColors=true;
- const clock={value:0};if(S.id==='yorknew')mat.onBeforeCompile=shader=>{shader.uniforms.hxClock=clock;shader.fragmentShader='uniform float hxClock;\n'+shader.fragmentShader;shader.fragmentShader=shader.fragmentShader.replace('#include <color_fragment>','#include <color_fragment>\n if(vColor.r>0.65 && vColor.g>0.40 && vColor.b<0.4) diffuseColor.rgb *= 0.94+0.06*sin(hxClock*1.6+gl_FragCoord.x*.013);');};
+ const clock={value:0};if(S.id==='yorknew')mat.onBeforeCompile=shader=>{shader.uniforms.hxClock=clock;shader.fragmentShader='uniform float hxClock;\n'+shader.fragmentShader;shader.fragmentShader=shader.fragmentShader.replace('#include <color_fragment>','#include <color_fragment>\n if(vColor.r>0.65 && vColor.g>0.40 && vColor.b<0.4) diffuseColor.rgb *= 0.94+0.06*sin(hxClock*1.6+gl_FragCoord.x*.013);');shader.fragmentShader=shader.fragmentShader.replace('#include <emissivemap_fragment>','#include <emissivemap_fragment>\n if(vColor.r>.65&&vColor.g>.40&&vColor.b<.4)totalEmissiveRadiance+=vec3(.9,.55,.16)*.6;');};
  const sc=new Scatter(root,travelMerge(parts),mat,[{x:W/2,z:H/2,r:Math.max(W,H),m:new THREE.Matrix4(),c:white}],lineMat);
  let sea=null;
  if(S.id==='whale'){
-  const g=new THREE.BufferGeometry(),p=[-900,0,-900,W+900,0,-900,W+900,0,-125,-900,0,-900,W+900,0,-125,-900,0,-125,W+125,0,-125,W+900,0,-125,W+900,0,H+900,W+125,0,-125,W+900,0,H+900,W+125,0,H+900];g.setAttribute('position',new THREE.Float32BufferAttribute(p,3));
+  const g=new THREE.BufferGeometry(),p=[];const rect=(x0,z0,x1,z1)=>p.push(x0,0,z0,x1,0,z0,x1,0,z1,x0,0,z0,x1,0,z1,x0,0,z1);rect(-1000,-1000,W+1000,-24);rect(W+24,-24,W+1000,H+1000);rect(-1000,-24,-24,H+1000);rect(-24,H+24,W+24,H+1000);g.setAttribute('position',new THREE.Float32BufferAttribute(p,3));
   sea=new THREE.ShaderMaterial({side:THREE.DoubleSide,uniforms:{uTime:clock,c:{value:new THREE.Color('#55adc5')},light:{value:new THREE.Color('#b4e9e6')}},vertexShader:'varying vec2 w;void main(){w=position.xz;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',fragmentShader:'uniform float uTime;uniform vec3 c,light;varying vec2 w;void main(){float wave=sin(w.y*.025+sin(w.x*.011)*1.4+uTime*.8);float glint=smoothstep(.91,.99,wave)*smoothstep(.1,.8,sin(w.x*.03+uTime*.3));gl_FragColor=vec4(mix(c,light,glint*.60),1.0);\n#include <colorspace_fragment>\n}'});
   const water=new THREE.Mesh(g,sea);water.position.y=.12;water.renderOrder=-1;root.add(water);
  }
@@ -846,8 +860,9 @@ export function buildMeadow(scene, W, H, season = 'summer') {
   const inField = (x, z, pad = 0) => x > pad && x < W - pad && z > pad && z < H - pad;
   const puds = [...mapPuddles(S.id), ...seasonObstacles(S.id)];
   const wet = (x, z, pad) => puds.some((p) => Math.hypot(x - p.x, z - p.y) < p.r * 1.3 + pad);
-  const onPath = (x, z, pad) => S.id==='yorknew' || L.path(x, z) < L.pathHalf + pad || (puds.length > 0 && wet(x, z, pad));
-  const inPond = (x, z, pad) => S.id==='whale'&&(x>W+100-pad||z<-110+pad) || Math.hypot(x - L.pond.x, (z - L.pond.z) * 1.25) < L.pond.r + pad;
+  const whalePath=(x,z,pad)=>{const qx=x-W*.5,qz=z-H*.5,r=Math.hypot(qx,qz),wx=((qx+125)%310+310)%310-155,wz=((qz+90)%240+240)%240-120;return Math.min(Math.abs(r-150),Math.abs(r-295),Math.abs(qx-42*Math.sin(qz*.012)))<27+pad||Math.hypot(wx/(43+pad),wz/(26+pad))<1.2;};
+  const onPath = (x, z, pad) => (S.id==='whale'&&whalePath(x,z,pad)) || S.id==='yorknew' || L.path(x, z) < L.pathHalf + pad || (puds.length > 0 && wet(x, z, pad));
+  const inPond = (x, z, pad) => S.id==='whale'&&(x>W+24-pad||z<-24+pad||x<-24+pad||z>H+24-pad) || Math.hypot(x - L.pond.x, (z - L.pond.z) * 1.25) < L.pond.r + pad;
 
   scene.background = new THREE.Color(S.sky);
   const lineMats = [], lineR = outlineMaterial(true), lineN = outlineMaterial(false);
@@ -945,6 +960,7 @@ export function buildMeadow(scene, W, H, season = 'summer') {
   // Fence: one merged mesh + its hull.
   const lanterns = S.id === 'kyoto'||S.id === 'yorknew';
   const fenceMat = toonMaterial(lanterns ? '#ffffff' : S.fence); fenceMat.vertexColors = true;
+  if(S.id==='yorknew'){const compile=fenceMat.onBeforeCompile;fenceMat.onBeforeCompile=function(shader,renderer){compile.call(this,shader,renderer);shader.fragmentShader=shader.fragmentShader.replace('#include <emissivemap_fragment>','#include <emissivemap_fragment>\n if(vColor.r>.8&&vColor.g>.5&&vColor.b<.65)totalEmissiveRadiance+=vec3(1.,.68,.22)*.8;');};}
   const fenceGeo = fenceGeometry(W, H, lanterns, lanterns ? S.fence : '#ffffff');
   const fence = new THREE.Mesh(fenceGeo, fenceMat); root.add(fence);
   const fenceLine = new THREE.Mesh(fenceGeo, lineR); root.add(fenceLine);

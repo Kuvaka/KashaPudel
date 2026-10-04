@@ -180,6 +180,11 @@ function hxHairUpdate(item,st,next,w,speed,dt){
  g.attributes.position.needsUpdate=true;g.attributes.normal.needsUpdate=true;
 }
 
+function hxCrestUpdate(item,st,next,w,speed,t){
+ const g=item.mesh.geometry,A=item.b.geo.morphAttributes.position[st].array,B=item.b.geo.morphAttributes.position[next].array,NA=item.b.geo.morphAttributes.normal[st].array,NB=item.b.geo.morphAttributes.normal[next].array,P=g.attributes.position.array,N=g.attributes.normal.array;
+ for(let i=0;i<P.length;i+=3){const x=A[i]*(1-w)+B[i]*w,y=A[i+1]*(1-w)+B[i+1]*w,z=A[i+2]*(1-w)+B[i+2]*w,k=Math.max(0,-x-.65),a=Math.sin(t*6-k)*.045*Math.min(1,speed)*k,c=Math.cos(a),s=Math.sin(a);P[i]=x;P[i+1]=y*c-z*s;P[i+2]=y*s+z*c;const nx=NA[i]*(1-w)+NB[i]*w,ny=NA[i+1]*(1-w)+NB[i+1]*w,nz=NA[i+2]*(1-w)+NB[i+2]*w;N[i]=nx;N[i+1]=ny*c-nz*s;N[i+2]=ny*s+nz*c;}g.attributes.position.needsUpdate=true;g.attributes.normal.needsUpdate=true;
+}
+
 export class DogVisual {
   // Set by the renderer every frame: drawing-buffer size, device px per world unit, DPR.
   static view = { res: new THREE.Vector2(1, 1), pxPerUnit: 1, dpr: 1 };
@@ -276,7 +281,7 @@ export class DogVisual {
     for (const slot of Object.keys(this.items)) {
       if (worn[slot]?.id === this.items[slot].id) continue;
       this.items[slot].hood?.removeFromParent();
-      if(this.items[slot].b.dynamicHair) this.items[slot].mesh.geometry.dispose();
+      if(this.items[slot].b.dynamicHair||this.items[slot].b.dynamicCrest) this.items[slot].mesh.geometry.dispose();
       this.items[slot].mesh.removeFromParent(); delete this.items[slot];
     }
     this.palette = null; this.boots = null; this.trail = null;
@@ -290,8 +295,8 @@ export class DogVisual {
       if (this.items[slot]) continue;
       const b = buildLook(it.id, it.look);
       if (!b) continue; // unknown look: owned, just not drawn
-      const itemGeo=b.dynamicHair?b.geo.clone():b.geo;
-      if(b.dynamicHair){itemGeo.morphAttributes={};itemGeo.attributes.position.setUsage(THREE.DynamicDrawUsage);itemGeo.attributes.normal.setUsage(THREE.DynamicDrawUsage);}
+      const itemGeo=(b.dynamicHair||b.dynamicCrest)?b.geo.clone():b.geo;
+      if(b.dynamicHair||b.dynamicCrest){itemGeo.morphAttributes={};itemGeo.attributes.position.setUsage(THREE.DynamicDrawUsage);itemGeo.attributes.normal.setUsage(THREE.DynamicDrawUsage);}
       const mesh = new THREE.Mesh(itemGeo, itemMaterial());
       if(b.headMorph) mesh.morphTargetInfluences=this.headMesh.morphTargetInfluences;
       if (b.mount === 'skin') { // garment: rides on the body mesh and shares its morph weights
@@ -329,7 +334,7 @@ export class DogVisual {
   hipOf(a0, a1, w) { return a0.hip.map((v, i) => lerp(v, a1.hip[i], w)); }
 
   dispose() {
-    for(const it of Object.values(this.items))if(it.b.dynamicHair)it.mesh.geometry.dispose();
+    for(const it of Object.values(this.items))if(it.b.dynamicHair||it.b.dynamicCrest)it.mesh.geometry.dispose();
     this.root.removeFromParent();
     for (const m of [this.mat, this.bodyMat, this.earMat, this.pawMat, this.lineMat, this.lineMatR, this.mouth.material]) m.dispose();
     this.crown.traverse((o) => o.geometry?.dispose()); // each dog builds its own crown
@@ -500,11 +505,13 @@ export class DogVisual {
     for (const slot in this.items) {
       const { mesh, b } = this.items[slot];
       if(b.dynamicHair)hxHairUpdate(this.items[slot],st,next,w,v/(CONFIG.dog.baseSpeed*Math.pow(s/CONFIG.dog.baseRadius,CONFIG.dog.speedExp)),dt);
+      if(b.dynamicCrest)hxCrestUpdate(this.items[slot],st,next,w,norm,t);
       if(b.bobber){const q=.5+.5*Math.sin(t*(4+5*Math.min(1,norm)));mesh.morphTargetInfluences[0]=1-q;mesh.morphTargetInfluences[1]=q;}
       if (!b.place) continue;
       const [p, r, k] = b.place(P);
       mesh.position.set(p[0], p[1], p[2]); mesh.rotation.set(r[0], r[1], r[2]); mesh.scale.setScalar(k);
       if (b.wave) mesh.morphTargetInfluences[0] = 0.5 + 0.5 * Math.sin(t * 3.2);
+      if (b.wingbeat) mesh.morphTargetInfluences[0] = 0.5 + 0.5 * Math.sin(t * 3.2);
       if (b.spin) mesh.rotation.y = t * (8 + 14 * Math.min(1, norm));
       if (b.flap) mesh.scale.z = k * (1 + 0.12 * Math.sin(t * (6 + 10 * Math.min(1, norm))));
     }

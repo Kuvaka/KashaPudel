@@ -51,7 +51,7 @@ const puffTex = () => canvasTex(64, 64, (x) => {
 // Dash trails bought in the wardrobe: one atlas, one Points batch for every kind.
 // Cells: 0 crumb, 1 heart, 2 petal, 3 bubble, 4 star, 5 soft dot (tinted: rainbow), 6 leaf and
 // 7 snowflake (both drawn light, tinted per particle; seasons use them too).
-export const TRAIL_CELL = { crumbs: 0, hearts: 1, petals: 2, bubbles: 3, stars: 4, rainbow: 5, leaves: 6, snow: 7, sakura: 2, origami: 8, lightning:10, gum:11, card:12, gumStain:13, aura:14 };
+export const TRAIL_CELL = { crumbs: 0, hearts: 1, petals: 2, bubbles: 3, stars: 4, rainbow: 5, leaves: 6, snow: 7, sakura: 2, origami: 8, confetti: 9, lightning:10, gum:11, card:12, gumStain:13, aura:14 };
 const SAKURA = ['#ffb6d0','#ffd6e6','#eda0c1'].map(c=>new THREE.Color(c));
 const HX_AURA=['#8bdca2','#89e5eb'].map(c=>new THREE.Color(c));
 const LEAFY = ['#f08a3c', '#e8603a', '#f5b942'].map((c) => new THREE.Color(c));
@@ -120,11 +120,12 @@ export const trailTex = () => atlas ??= canvasTex(256, 256, (x) => {
     x.fillStyle='#fff7ed';poly([[7,12],[14,5],[15,-9],[21,-12],[26,-8],[20,-8],[20,8],[13,17]]);
     x.strokeStyle='#dcadb9';x.lineWidth=2;x.beginPath();x.moveTo(-24,-18);x.lineTo(0,10);x.lineTo(23,-18);x.stroke();
   });
-  // Cell 9 reserved for the Italian confetti; HxH occupies 10..14.
+  // Italian confetti occupies its reserved cell; other atlas cells stay unchanged.
+  cell(9,()=>{x.fillStyle='#ffffff';x.strokeStyle='#bda8a0';x.lineWidth=2.5;x.beginPath();x.moveTo(0,-25);x.lineTo(17,0);x.lineTo(0,25);x.lineTo(-17,0);x.closePath();x.fill();x.stroke();});
   cell(10,()=>{x.lineCap='round';for(const [c,w]of [['#70d8ff',12],['#ffffff',5]]){x.strokeStyle=c;x.lineWidth=w;x.beginPath();x.moveTo(15,-25);x.lineTo(-8,-5);x.lineTo(10,0);x.lineTo(-15,25);x.stroke();}});
   cell(11,()=>{x.fillStyle='#ffffff';x.beginPath();x.ellipse(0,0,31,2.5,0,0,7);x.fill();});
   cell(12,()=>{x.fillStyle='#f9f2d7';x.strokeStyle='#746292';x.lineWidth=4;x.fillRect(-17,-25,34,50);x.strokeRect(-17,-25,34,50);x.fillStyle='#7aa393';x.fillRect(-10,-15,20,29);x.fillStyle='#f9f2d7';x.beginPath();x.moveTo(0,-10);x.lineTo(7,0);x.lineTo(0,10);x.lineTo(-7,0);x.closePath();x.fill();});
-  cell(13,()=>{x.fillStyle='#ffffff';x.beginPath();x.ellipse(0,0,28,8,0,0,7);x.fill();for(const [a,b]of [[-16,5],[13,-5]]){x.beginPath();x.ellipse(a,b,9,6,0,0,7);x.fill();}});
+  cell(13,()=>{x.fillStyle='#ffffff';x.beginPath();x.ellipse(0,0,24,17,0,0,7);x.fill();for(const [a,b]of [[-16,5],[13,-5]]){x.beginPath();x.ellipse(a,b,9,6,0,0,7);x.fill();}});
   cell(14,()=>{x.fillStyle='#ffffff';x.beginPath();for(let i=0;i<10;i++){const a=i*Math.PI/5-Math.PI/2,r=i%2?9:25;x.lineTo(Math.cos(a)*r,Math.sin(a)*r);}x.closePath();x.fill();});
 });
 const SPLASH = ['#d8f3ff', '#9fd8f5'];
@@ -210,22 +211,21 @@ export class FX {
   electricStart(pos,dir,R){
     this.trail('lightning',pos,dir,R,3);const p=this.particle();p.p.copy(pos);p.p.y=R*.32;p.v.set(0,0,0);p.c.set('#a7edff');Object.assign(p,{t:0,life:.22,size:R*2.3,cell:10,rot:0,vr:0,g:0});
   }
-  // One owner per dog, max nine concurrent dash threads. 8 segments + 3 stains each.
+  // One pooled tube mesh for up to nine simultaneous elastic trails.
   elastic(owner,pos,dir,R,dashing,dt){
-    const states=this.gumStates??=Array.from({length:9},(_,i)=>({owner:null,age:2,anchor:new THREE.Vector3(),end:new THREE.Vector3(),dir:new THREE.Vector3(),indices:Array.from({length:11},(_,j)=>141+i*11+j),was:false}));
+    const states=this.gumStates??=Array.from({length:9},(_,i)=>({owner:null,age:2,anchor:new THREE.Vector3(),end:new THREE.Vector3(),dir:new THREE.Vector3(),indices:Array.from({length:11},(_,j)=>141+i*11+j),was:false,releaseAt:null}));
     let a=states.find(s=>s.owner===owner);if(!a){if(!dashing)return;a=states.find(s=>s.age>=1.5);if(!a)return;a.owner=owner;a.was=false;}
-    if(dashing&&!a.was){a.age=0;a.anchor.copy(pos);a.end.copy(pos);a.dir.copy(dir);a.R=R;for(const idx of a.indices){const p=this.parts[idx];p.locked=true;p.c.set('#f28fbb');p.v.set(0,0,0);p.g=0;p.vr=0;p.rot=0;p.t=.02;p.life=2;}}
-    a.was=dashing;if(a.age>=1.5)return;if(dashing){a.end.copy(pos);a.dir.copy(dir);}
-    const release=Math.min(1,Math.max(0,(a.age-.45)/.30)),distance=a.anchor.distanceTo(a.end),dx=a.end.x-a.anchor.x,dz=a.end.z-a.anchor.z;
-    for(let j=0;j<11;j++){
-      const p=this.parts[a.indices[j]];
-      if(j<8){if(release>=1){p.t=p.life;continue;}const u=(j+.5)/8,keep=1-release,pct=release*.5+u*keep;
-       p.p.set(a.anchor.x+dx*pct+a.dir.z*Math.sin(u*Math.PI*2)*R*release,a.R*.32+Math.sin(u*Math.PI)*R*.12,a.anchor.z+dz*pct-a.dir.x*Math.sin(u*Math.PI*2)*R*release);
-       p.size=Math.max(R*.35,distance/8*1.40)*keep;p.cell=11;p.hxDX=dx;p.hxDZ=dz;p.gumAngle=true;p.t=.02;p.life=.9;
-      }else{const u=(j-7)/4;p.p.set(a.anchor.x+dx*u,.15,a.anchor.z+dz*u);p.size=R*(.65+.05*(j%2));p.cell=13;p.hxDX=dx;p.hxDZ=dz;p.gumAngle=true;p.t=.15+Math.max(0,a.age-.45);p.life=1.15;}
-      // Keep all 11 slots owned until the shared 1.5 s release. Otherwise a fading
-      // thread could overwrite a generic particle which reused one of its old indices.
-    }
+    if(dashing&&!a.was){a.age=0;a.releaseAt=null;a.anchor.copy(pos);a.end.copy(pos);a.dir.copy(dir);a.R=R;for(const idx of a.indices){const p=this.parts[idx];p.locked=true;p.c.set('#f58dbe');p.v.set(0,0,0);p.g=0;p.vr=0;p.rot=0;p.t=p.life;}}
+    if(!dashing&&a.was)a.releaseAt=a.age;a.was=dashing;if(a.age>=1.5)return;if(dashing){a.end.copy(pos);a.dir.copy(dir);}
+    const dx=a.end.x-a.anchor.x,dz=a.end.z-a.anchor.z;
+    for(let j=8;j<11;j++){const p=this.parts[a.indices[j]],u=(j-8)/2;const len=Math.hypot(dx,dz)||1,side=(j%2?1:-1)*R*.30;p.p.set(a.anchor.x+dx*u-dz/len*side,.3,a.anchor.z+dz*u+dx/len*side);p.size=R*.85;p.cell=13;p.hxDX=dx;p.hxDZ=dz;p.gumAngle=true;p.t=.15+Math.max(0,a.age-.50);p.life=1.15;}
+  }
+  updateElastic(){
+    if(!this.gumStates)return;
+    if(!this.gumMesh){const pos=new Float32Array(9*25*6*3),colors=new Float32Array(pos.length),indices=[];for(let n=0;n<9;n++)for(let i=0;i<25;i++)for(let j=0;j<6;j++){const v=(n*25+i)*6+j,k=.72+.28*Math.cos(j*Math.PI/3);colors.set([k,k,k],v*3);if(i<24){const a=v,b=(n*25+i)*6+(j+1)%6,c=b+6,d=a+6;indices.push(a,b,d,b,c,d);}}const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(pos,3).setUsage(THREE.DynamicDrawUsage));g.setAttribute('color',new THREE.BufferAttribute(colors,3));g.setIndex(indices);this.gumMesh=new THREE.Mesh(g,new THREE.MeshBasicMaterial({color:'#ff85bd',vertexColors:true,side:THREE.DoubleSide,toneMapped:false}));this.gumMesh.frustumCulled=false;this.gumMesh.name='elastic-gum';this.trailPts.parent.add(this.gumMesh);}
+    const P=this.gumMesh.geometry.attributes.position;let active=0;
+    for(let n=0;n<9;n++){const a=this.gumStates[n],q=a.releaseAt===null?0:Math.max(0,(a.age-a.releaseAt)/.40),live=a.owner&&a.age<1.5&&q<1;if(live)active++;const dx=a.end.x-a.anchor.x,dz=a.end.z-a.anchor.z,len=Math.hypot(dx,dz)||1,nx=-dz/len,nz=dx/len,R=a.R||1,shrink=q===0?0:Math.min(1,q+.13*Math.sin(q*Math.PI*4)*(1-q));for(let i=0;i<25;i++){const u=i/24,t=u+(1-u)*shrink,wave=Math.sin(u*Math.PI)*Math.sin(q*Math.PI*5)*R*.6*q,x=a.anchor.x+dx*t+nx*wave,z=a.anchor.z+dz*t+nz*wave,y=Math.max(.10*R,R*(.24+.60*t-.38*Math.sin(u*Math.PI)))+Math.sin(q*Math.PI*3)*R*.28*Math.sin(u*Math.PI)*(1-q),r=live?R*.09*(1-.6*q):0;for(let j=0;j<6;j++){const ang=j*Math.PI/3,k=(n*25+i)*6+j;P.setXYZ(k,live?x+nx*Math.cos(ang)*r:0,live?y+Math.sin(ang)*r:-100,live?z+nz*Math.cos(ang)*r:0);}}}
+    P.needsUpdate=true;this.gumMesh.visible=active>0;
   }
 
   // `count` new trail particles of `kind` behind a dashing dog.
@@ -243,13 +243,13 @@ export class FX {
         T.p.y = rb ? R * (1.25 - j * 0.13) : R * (0.4 + Math.random() * 0.9);
         T.v.copy(dir).multiplyScalar(-R * (rb ? 0.2 : 0.8)).addScaledVector(tx, rb ? 0 : jit * 0.8);
         T.v.y = rb ? 0 : R * (kind === 'bubbles' ? 0.9 : kind === 'crumbs' ? 1.2 : 0.5);
-        T.g = kind === 'crumbs' ? R * 5 : kind === 'petals' || kind === 'sakura' || kind === 'leaves' ? R * 0.6 : kind === 'snow' ? R * 0.3 : 0;
+        T.g = kind === 'crumbs' ? R * 5 : kind === 'confetti' || kind === 'petals' || kind === 'sakura' || kind === 'leaves' ? R * 0.6 : kind === 'snow' ? R * 0.3 : 0;
         // Short-lived, and crumbs vanish before they land: nothing on the grass may look like food.
         T.t = 0; T.life = rb ? 0.5 : kind === 'crumbs' ? 0.35 + Math.random() * 0.1 : 0.5 + Math.random() * 0.3;
         T.size = R * (kind === 'origami' ? 0.52 : rb ? 0.3 : kind === 'crumbs' ? 0.2 + Math.random() * 0.08 : 0.3 + Math.random() * 0.15);
         if(kind==='lightning'){T.life=.25+Math.random()*.15;T.size=R*.90;T.vr=0;}
         T.cell = kind==='lightning'&&i%3!==0?5:cell; T.rot = kind === 'origami' ? (Math.random()-.5)*.7 : Math.random() * 6.28; T.vr = kind === 'origami' ? (Math.random()-.5)*1.5 : rb || kind === 'bubbles' ? 0 : (Math.random() - 0.5) * 8;
-        T.c.copy(kind==='aura'?HX_AURA[i%2]:kind === 'sakura' ? SAKURA[i % 3] : rb ? RAINBOW[j] : kind === 'leaves' ? LEAFY[i % 3] : kind === 'snow' ? SNOWY[i % 2] : WHITE);
+        T.c.copy(kind==='confetti'?RAINBOW[i%RAINBOW.length]:kind==='aura'?HX_AURA[i%2]:kind === 'sakura' ? SAKURA[i % 3] : rb ? RAINBOW[j] : kind === 'leaves' ? LEAFY[i % 3] : kind === 'snow' ? SNOWY[i % 2] : WHITE);
       }
     }
   }
@@ -314,6 +314,7 @@ export class FX {
 
   update(dt, camera, pxPerUnit = 1) {
     for(const a of this.gumStates??[]){a.age+=dt;if(a.age>=1.5){a.owner=null;a.was=false;for(const idx of a.indices)this.parts[idx].locked=false;}}
+    this.updateElastic();
     this.updateTrail(dt, pxPerUnit, camera);
     for (const R of this.rings) {
       if (!R.m.visible) continue;
