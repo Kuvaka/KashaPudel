@@ -579,6 +579,7 @@ const BUILD = {
   },
   // Shoes replace the paw (unit paw: radius 1, sole at y = -1, x forward); DogVisual puts one on each foot.
   shoes({ style, color, sole = '#ffffff', trim = '#ffffff' }) {
+    if (style === 'jp_geta' || style === 'jp_tabi') return jpShoes({style,color,sole,trim});
     let parts;
     if (style === 'sneakers') {
       parts = [part(sphere, color, [0.05, -0.05, 0], [0, 0, 0], [1.12, 0.85, 1.08]),
@@ -601,6 +602,265 @@ const BUILD = {
   },
   propeller(look) { return BUILD.pinwheel({ blades: [look.blades ?? '#5ab0ff', look.blades ?? '#5ab0ff'] }); },
   garment: (look) => look.cut === 'frog' ? frogHood(look) : garment(look),
+};
+
+// Japanese travel collection: chunky silhouettes, vertex colours, shared merged geometry.
+Object.assign(FIT,{
+ jp_wreath:[-.04,.49,0,0,0,-.13,.44],jp_kasa:[-.09,.54,0,0,0,-.12,.51],
+ jp_hachimaki:[-.025,.24,0,0,0,-.15,.49],jp_kanzashi:[.19,.50,.52,.12,.25,-.10,.29],
+ jp_ears:[-.10,.46,0,0,0,-.10,.44],jp_towel:[-.09,.54,0,0,0,-.13,.36],
+ jp_mask:[.05,.48,.35,0,.5,-.25,.27],jp_cheeks:[0,0,0,0,0,0,1],
+ jp_wagasa:[-.04,.03,.13,0,0,.08,.68],jp_daruma:[-.16,.03,0,0,-1.1,.08,.62],
+ jp_maneki:[-.16,.03,0,0,-.7,.06,.69],jp_fan:[0,.05,.25,0,0,Math.PI,.27],
+ jp_lantern:[0,.02,.30,0,0,0,.25],jp_foxcharm:[0,.06,.30,0,0,Math.PI,.30],
+});
+const jpBox=(c,p,s,r=[0,0,0])=>part(box(),c,p,r,s);
+const jpRing=(c,t=.07)=>part(hoop(1,t,24),c,[0,0,0],[PI/2,0,0]);
+function jpFlower(c,m){
+ const p=[dot(m,[0,0,.045],[.18,.18,.09])];
+ for(let i=0;i<5;i++){const a=i*PI*2/5;p.push(orb(c,[Math.cos(a)*.33,Math.sin(a)*.33,0],[.28,.18,.055],[0,0,a]));}
+ return tight(p);
+}
+function jpMounted(k,parts,mount='head',extra={}){const geo=tight(parts);if(k==='jp_lantern')geo.translate(0,-1.30,0);return {mount,geo,place:P=>fit(k,P,mount==='tail'?1:mount==='back'?P.bw:P.hw),...extra};}
+const jpSide=(g,c,p,s=1)=>part(g,c,p,[0,PI/2,0],s);
+function jpCoin(L,p=[1.04,-.36,0]){
+ const a=[orb(L.gold,p,[.10,.40,.26])];
+ for(const y of [-.18,0,.18])a.push(jpBox(L.ink,[p[0]+.104,p[1]+y,p[2]],[.025,.035,.22]));
+ return a;
+}
+function jpClothFlower(d){
+ for(const [x,y]of [[-.35,.32],[.24,.04],[-.21,-.28]]){
+  const dx=d.x-x,dy=d.y-y,a=Math.atan2(dy,dx),r=Math.hypot(dx,dy);
+  if(r<.14+.045*Math.cos(5*a))return true;
+ }
+ return false;
+}
+const jpClothMask=d=>d.y>-.49&&d.x<.66&&d.x>-.79;
+const jpLapels=(d,L)=>Math.abs(d.x-(.53-.29*Math.abs(d.z)))<.055?L.trim:null;
+Object.assign(CUTS,{
+ jp_yukata:{mask:jpClothMask,gap:()=>.10,paint:(d,L)=>Math.abs(d.x+.20)<.12?L.belt:jpLapels(d,L)??L.color},
+ jp_happi:{mask:d=>jpClothMask(d)&&d.x>-.67,gap:()=>.10,paint:(d,L)=>jpLapels(d,L)??L.color},
+ jp_koi:{mask:jpClothMask,gap:()=>.11,paint:(d,L)=>inEll(d.x,d.y,-.4,.35,.24,.28)||inEll(d.x,d.y,.25,-.06,.22,.26)?L.trim:inEll(d.x,d.y,-.08,.6,.14,.20)||inEll(d.x,d.y,-.5,-.22,.1,.13)?L.motif:L.color},
+ jp_ninja:{mask:jpClothMask,gap:()=>.09,paint:(d,L)=>Math.abs(d.x+.20)<.12?L.belt:jpLapels(d,L)??L.color},
+ jp_tanuki:{mask:jpClothMask,gap:()=>.11,paint:(d,L)=>d.y<-.1||d.x>.40?L.trim:inEll(d.x,d.y,-.2,.15,.18,.22)?L.motif:L.color},
+});
+// Extra pieces keep identical topology and are baked for all six body profiles.
+function jpGarment(L){
+ const res=garment(L);if(!['jp_yukata','jp_happi','jp_koi','jp_tanuki'].includes(L.cut))return res;
+ const forms=PROFILES.map(P=>{
+  const b=P.bw,p=[];
+  if(L.cut==='jp_yukata'){
+   for(const s of [-1,1])p.push(orb(L.belt,[-P.bl*.16,b*.64,s*b*.20],[b*.16,b*.09,b*.26],[s*.15,0,0]));
+   p.push(orb(L.trim,[-P.bl*.16,b*.70,0],[b*.11,b*.09,b*.09]));
+   const f=jpFlower(L.motif,L.belt),sdf=bodySdf(P);
+   for(const side of [-1,1])for(const [x,y]of [[-.5,.2],[.14,.48]]){const d=new THREE.Vector3(x,y,side*.88).normalize(),r=rayToSurface(sdf,d)+b*.117,pos=d.clone().multiplyScalar(r),rot=new THREE.Euler().setFromQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,1),d));p.push(part(f,null,pos.toArray(),[rot.x,rot.y,rot.z],b*.31));}f.dispose();
+  }else if(L.cut==='jp_happi'){
+   const shape=flat(q=>{q.moveTo(0,-.22);q.lineTo(-.40,.12);q.quadraticCurveTo(0,.60,.40,.12);q.closePath();},.012,.006),pieces=[part(shape,L.motif)];shape.dispose();
+   for(const [x,y]of [[-.27,.13],[0,.32],[.27,.13]])pieces.push(part(tube([[0,-.18,.026],[x*.5,y*.5,.027],[x,y,.026]],.014,5),L.color));
+   const fan=tight(pieces),sdf=bodySdf(P);
+   for(const side of [-1,1]){const d=new THREE.Vector3(-.1,.3,side*.9).normalize(),r=rayToSurface(sdf,d)+b*.116,pos=d.clone().multiplyScalar(r),rot=new THREE.Euler().setFromQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,1),d));p.push(part(fan,null,pos.toArray(),[rot.x,rot.y,rot.z],b*.56));}fan.dispose();
+  }else if(L.cut==='jp_tanuki'){
+   for(const s of [-1,1]){p.push(orb(L.motif,[P.bl*.22,b*.64,s*b*.37],[b*.17,b*.19,b*.14]));p.push(orb(L.trim,[P.bl*.24,b*.69,s*b*.40],[b*.10,b*.10,b*.11]));}
+  }else{
+   const f=flat(q=>{q.moveTo(-.52,0);q.quadraticCurveTo(-.35,.42,-.06,.45);q.quadraticCurveTo(.16,.42,.43,0);q.closePath();},.055,.025);
+   p.push(part(f,L.trim,[-P.bl*.1,b*.55,0],[0,0,0],[b,b,b]));f.dispose();
+  }
+  return tight(p);
+ });
+ const extra=forms[0].clone();extra.morphTargetsRelative=false;
+ extra.morphAttributes.position=forms.map(g=>g.attributes.position.clone());extra.morphAttributes.normal=forms.map(g=>g.attributes.normal.clone());
+ const g=mergeGeometries([res.geo,extra]);g.computeBoundingSphere();g.boundingSphere.radius*=1.3;
+ res.geo.dispose();extra.dispose();forms.forEach(g=>g.dispose());return {mount:'skin',geo:g};
+}
+function jpShoes(L){
+ const p=[];
+ if(L.style==='jp_geta'){
+  p.push(orb(L.color,[.05,-.59,0],[1.12,.22,1.06]));
+  for(const x of [-.48,.52])p.push(jpBox(L.sole,[x,-.85,0],[.25,.30,1.52]));
+  for(const s of [-1,1])p.push(part(tube([[.70,.32,0],[.12,.73,s*.28],[-.24,-.25,s*.90]],.13,9),L.trim));
+  // Cream toe occupies the space of the original hidden paw; sandals are not hollow blocks.
+  p.unshift(orb('#f5dfbd',[0,-.05,0],[.92,.72,.90]));
+ }else{
+  p.push(orb(L.color,[-.17,-.02,0],[.94,.90,1.02]),orb(L.color,[.72,-.30,-.37],[.49,.57,.48]),orb(L.color,[.72,-.30,.47],[.48,.56,.36]));
+  p.push(part(hoop(.77,.12,18),L.trim,[0,.60,0],[PI/2,0,0],[1,.95,1]));
+  p.push(orb(L.sole,[.06,-.80,0],[1.07,.18,1.02]));
+ }
+ return {mount:'paw',geo:tight(p)};
+}
+Object.assign(BUILD,{
+ jp_wreath(L){const f=jpFlower(L.flower,L.middle),p=[jpRing(L.band,.07)];for(let i=0;i<5;i++){const a=i*PI*2/5;p.push(part(f,null,[Math.cos(a)*.82,.14,Math.sin(a)*.82],[-PI/2,0,-a],.65));}f.dispose();return jpMounted('jp_wreath',p);},
+ jp_kasa(L){const p=[part(new THREE.ConeGeometry(1,.47,24,1,true),L.color,[0,.20,0]),jpRing(L.rim,.045)];for(let i=0;i<8;i++){const a=i*PI/4;p.push(part(tube([[0,.44,0],[Math.cos(a)*.53,.19,Math.sin(a)*.53],[Math.cos(a),-.025,Math.sin(a)]],.016,6),L.rim));}return jpMounted('jp_kasa',p);},
+ jp_hachimaki(L){const band=new THREE.LatheGeometry([[1.08,-.16],[1.13,-.16],[1.16,-.12],[1.16,.12],[1.13,.16],[1.08,.16],[1.08,-.16]].map(([x,y])=>new THREE.Vector2(x,y)),28);const res=jpMounted('jp_hachimaki',[part(band,L.color,[0,0,0],[0,0,0],[1,1,1.034]),orb(L.disk,[1.18,0,0],[.027,.13,.13]),jpBox(L.color,[-1.09,-.20,.16],[.08,.60,.20],[.2,0,-.4]),jpBox(L.color,[-1.11,-.20,-.14],[.08,.52,.18],[-.3,0,-.2])]);band.dispose();return res;},
+ jp_kanzashi(L){const f=jpFlower(L.flower,L.middle),p=[part(f,null,[0,.1,0],[0,0,0],1.35)];f.dispose();for(let i=-1;i<=1;i++){p.push(part(tube([[i*.25,-.05,0],[i*.26,-.48,0],[i*.26,-.66-Math.abs(i)*.10,0]],.025,6),L.cord));p.push(orb(L.flower,[i*.26,-.79-Math.abs(i)*.10,0],[.105,.16,.05]));}return jpMounted('jp_kanzashi',p);},
+ jp_ears(L){const p=[jpRing(L.band,.055)];const e=flat(q=>{q.moveTo(-.30,0);q.quadraticCurveTo(-.26,.56,0,.85);q.quadraticCurveTo(.26,.56,.30,0);q.closePath();},.14,.04);for(const s of [-1,1]){p.push(part(e,L.color,[0,.03,s*.73],[0,PI/2,s*.18]));p.push(part(e,L.inner,[.12,.12,s*.73],[0,PI/2,s*.18],[.63,.68,.3]));}e.dispose();return jpMounted('jp_ears',p);},
+ jp_towel(L){const p=[orb(L.color,[0,.10,0],[.82,.20,.65]),jpBox(L.trim,[0,.18,.51],[1.18,.10,.12]),jpBox(L.trim,[0,.18,-.51],[1.18,.10,.12])];for(const x of [-.35,0,.35])p.push(dot(L.trim,[x,.295,0],[.065,.025,.065]));return jpMounted('jp_towel',p);},
+ jp_suzu(L){const p=[jpRing(L.cord,.09),orb(L.gold,[1.06,-.30,0],[.30,.32,.30])];for(const z of [-.13,.13])p.push(orb(L.ink,[1.34,-.34,z],[.022,.07,.065]));p.push(jpBox(L.ink,[1.35,-.42,0],[.03,.036,.29]),part(hoop(.10,.025,12),L.gold,[1.04,.07,0],[0,PI/2,0]));return jpMounted('collar',p);},
+ jp_waves(L){const p=[jpRing(L.color,.19),jpSide(triangle,L.color,[1.02,-.30,0],.62)];for(const [y,z]of [[-.07,-.20],[-.07,.20],[-.36,0]])p.push(part(new THREE.TorusGeometry(.17,.022,5,12,PI),L.trim,[1.095,y,z],[0,PI/2,PI]));return jpMounted('collar',p);},
+ jp_eri(L){const p=[jpRing(L.trim,.10)];for(const s of [-1,1]){p.push(jpBox(L.trim,[.99,-.17,s*.24],[.14,.25,.72],[-s*.65,0,0]));p.push(jpBox(L.color,[1.08,-.17,s*.24],[.07,.17,.70],[-s*.65,0,0]));}return jpMounted('collar',p);},
+ jp_koban(L){return jpMounted('collar',[jpRing(L.cord,.075),...jpCoin(L)]);},
+ jp_mask(L){const p=[orb(L.color,[0,0,0],[.54,.63,.13])],e=flat(q=>{q.moveTo(-.18,0);q.lineTo(0,.50);q.lineTo(.18,0);q.closePath();},.06,.025);for(const s of [-1,1]){p.push(part(e,L.color,[s*.32,.42,0],[0,0,-s*.18]));p.push(part(e,L.red,[s*.32,.48,.09],[0,0,-s*.18],.62));p.push(orb(L.ink,[s*.23,.10,.126],[.15,.045,.022],[0,0,s*.18]));p.push(orb(L.red,[s*.30,-.16,.127],[.055,.16,.02],[0,0,s*.48]));}p.push(orb(L.red,[0,-.19,.16],[.075,.055,.045]));e.dispose();return jpMounted('jp_mask',p);},
+ jp_specs(L){const p=[];for(const s of [-1,1]){p.push(part(hoop(.275,.035,24),L.color,[0,0,s*.42],[0,PI/2,0]));p.push(part(tube([[0,.10,s*.65],[-.35,.08,s*.78],[-.52,-.02,s*.72]],.025,8),L.color));}p.push(part(tube([[.02,.05,-.14],[.065,.12,0],[.02,.05,.14]],.03,8),L.bridge));return jpMounted('specs',p);},
+ jp_cheeks(L){const f=jpFlower(L.flower,L.middle),p=[];for(const s of [-1,1])p.push(part(f,null,[.47,-.20,s*.335],[0,s*.9,0],.115));f.dispose();return jpMounted('jp_cheeks',p);},
+ jp_garment:jpGarment,
+ jp_wagasa(L){const p=[part(new THREE.ConeGeometry(.21,1.45,12),L.color,[0,.28,0],[0,0,-PI/2]),part(new THREE.CylinderGeometry(.035,.035,2.05,8),L.wood,[0,.28,0],[0,0,PI/2])];for(const s of [-1,1])p.push(part(tube([[-.62,.29,s*.2],[-.10,.47,s*.10],[.72,.29,0]],.018,8),L.rib));p.push(part(tube([[-1.01,.28,0],[-1.18,.28,0],[-1.23,.46,0],[-1.10,.52,0]],.05,10),L.wood));for(const x of [-.35,.28])p.push(part(hoop(.24,.035,16),L.strap,[x,.24,0],[0,PI/2,0]));return jpMounted('jp_wagasa',p,'back');},
+ jp_daruma(L){const p=[orb(L.color,[0,.40,0],[.52,.52,.48]),orb(L.face,[.455,.52,0],[.10,.28,.34])];for(const s of [-1,1]){p.push(dot(L.ink,[.55,.54,s*.13],[.022,.05,.048]));p.push(part(tube([[.54,.68,s*.05],[.55,.72,s*.14],[.52,.66,s*.25]],.035,6),L.ink));p.push(jpBox(L.gold,[.43,.21,s*.17],[.04,.16,.055],[s*.2,0,0]));}for(const x of [-.25,.25])p.push(part(hoop(.36,.045,16),L.strap,[x,.12,0],[0,PI/2,0],[1,.8,1]));return jpMounted('jp_daruma',p,'back');},
+ jp_maneki(L){
+  const p=[orb(L.pad,[0,.06,0],[.58,.10,.48]),orb(L.color,[0,.39,0],[.28,.32,.25]),orb(L.color,[.06,.80,0],[.31,.28,.28])];
+  for(const s of [-1,1]){p.push(part(new THREE.ConeGeometry(.13,.25,8),L.color,[.02,1.04,s*.19]));p.push(dot(L.red,[.105,1.04,s*.20],[.055,.08,.07]));p.push(dot(L.ink,[.326,.82,s*.105],[.018,.04,.03]));p.push(orb(L.color,[.16,.16,s*.19],[.18,.09,.13]));}
+  p.push(part(hoop(.23,.045,16),L.red,[.05,.58,0],[PI/2,0,0]),dot(L.red,[.364,.735,0],[.02,.026,.025]),orb(L.gold,[.268,.36,-.06],[.045,.18,.13]),orb(L.color,[.19,.43,-.24],[.12,.19,.1]));
+  const base=tight(p),arm=tight([orb(L.color,[.06,.72,.34],[.105,.23,.105]),orb(L.color,[.10,.92,.35],[.13,.12,.13]),dot(L.red,[.218,.93,.35],[.014,.05,.05])]);
+  const g=mergeGeometries([base,arm]);const target=g.attributes.position.clone(),normal=g.attributes.normal.clone(),v=new THREE.Vector3(),mat=new THREE.Matrix4().makeRotationX(-.65),pivot=new THREE.Vector3(.06,.55,.30);
+  for(let i=base.attributes.position.count;i<target.count;i++){v.fromBufferAttribute(target,i).sub(pivot).applyMatrix4(mat).add(pivot);target.setXYZ(i,v.x,v.y,v.z);v.fromBufferAttribute(normal,i).transformDirection(mat);normal.setXYZ(i,v.x,v.y,v.z);}
+  g.morphAttributes.position=[target];g.morphAttributes.normal=[normal];g.morphTargetsRelative=false;g.computeBoundingSphere();g.boundingSphere.radius*=1.2;base.dispose();arm.dispose();
+  return {mount:'back',geo:g,wave:true,place:P=>fit('jp_maneki',P,P.bw)};
+ },
+ jp_fan(L){const p=[orb(L.color,[0,.73,0],[.67,.64,.055]),part(new THREE.CylinderGeometry(.045,.045,.9,8),L.wood,[0,.04,0])];for(const s of [-1,1])p.push(part(new THREE.TorusGeometry(.34,.035,5,16,PI),L.motif,[0,.60,s*.06]));for(const x of [-.28,0,.28])p.push(part(tube([[0,.24,.064],[x,.65,.07],[x*1.5,1.10,.04]],.014,6),L.wood));return jpMounted('jp_fan',p,'tail');},
+ jp_lantern(L){const p=[orb(L.color,[0,.56,0],[.50,.60,.50])];for(const y of [.20,.38,.57,.76,.92]){const r=.50*Math.sqrt(Math.max(.05,1-((y-.56)/.60)**2));p.push(part(hoop(r,.023,18),L.rib,[0,y,0],[PI/2,0,0]));}for(const y of [-.03,1.15])p.push(part(new THREE.CylinderGeometry(.23,.23,.09,12),L.cap,[0,y,0]));p.push(part(hoop(.15,.025,12),L.cap,[0,1.34,0]));return jpMounted('jp_lantern',p,'tail');},
+ jp_foxcharm(L){return jpMounted('jp_foxcharm',[part(hoop(.19,.04,14),L.cord,[0,0,0]),orb(L.color,[0,.46,0],[.32,.57,.30]),orb(L.tip,[.03,.97,0],[.22,.33,.21],[0,0,-.12]),dot(L.tip,[.06,1.22,0],[.10,.16,.11])],'tail');},
+});
+
+// Round 2: replace only the ten requested looks; all other Japanese builders stay intact.
+Object.assign(FIT, {
+  jp_towel: [-.07,.51,0,0,0,-.10,.52],
+  jp_mask: [.14,.42,.43,-.62,.48,-.28,.432],
+  jp_wagasa: [-.62,.20,.27,0,-.10,.03,.60],
+  jp_fan: [0,-.04,0,0,0,0,.64],
+  jp_lantern: [0,-.04,0,0,0,0,.60],
+  jp_foxcharm: [0,-.04,0,0,0,0,.66],
+});
+function jpR2Morph(forms) {
+  const geo=forms[0].clone();geo.morphTargetsRelative=false;
+  geo.morphAttributes.position=forms.map(g=>g.attributes.position.clone());
+  geo.morphAttributes.normal=forms.map(g=>g.attributes.normal.clone());
+  geo.computeBoundingSphere();geo.boundingSphere.radius*=1.25;
+  forms.forEach(g=>g.dispose());return geo;
+}
+function jpR2Leaf(color,pos,scale=1,rot=[0,0,0]) {
+  const g=flat(s=>{s.moveTo(-.55,0);s.quadraticCurveTo(-.05,.45,.65,.05);s.quadraticCurveTo(.22,-.38,-.55,0);s.closePath();},.065,.022);
+  const r=part(g,color,pos,rot,scale);g.dispose();return r;
+}
+// Head-local shell with a smooth oval face opening; topology is shared by all six stages.
+function jpR2Shell(color) {
+  const points=[],index=[],RINGS=12,SIDES=40,start=Math.acos(.52/.67);
+  for(let j=0;j<=RINGS;j++){
+    const t=start+(PI-start)*j/RINGS,k=Math.min(1,(t-start)/(PI/2-start));
+    const sy=.35/(.65*Math.sin(start))*(1-k)+k,sz=.45/(.68*Math.sin(start))*(1-k)+k;
+    for(let i=0;i<=SIDES;i++){const a=i*PI*2/SIDES;points.push(.67*Math.cos(t),-.05+.65*Math.sin(t)*Math.cos(a)*sy,.68*Math.sin(t)*Math.sin(a)*sz);}
+  }
+  for(let j=0;j<RINGS;j++)for(let i=0;i<SIDES;i++){const a=j*(SIDES+1)+i,b=a+SIDES+1;index.push(a,b,a+1,b,b+1,a+1);}
+  const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(points,3));g.setIndex(index);g.computeVertexNormals();
+  const r=part(g,color);g.dispose();return r;
+}
+function jpR2ShellPoint(theta,phi,lift=.014) {
+  const start=Math.acos(.52/.67),k=Math.min(1,(theta-start)/(PI/2-start));
+  const sy=.35/(.65*Math.sin(start))*(1-k)+k,sz=.45/(.68*Math.sin(start))*(1-k)+k;
+  return [(.67+lift)*Math.cos(theta),-.05+(.65+lift)*Math.sin(theta)*Math.cos(phi)*sy,(.68+lift)*Math.sin(theta)*Math.sin(phi)*sz];
+}
+function jpR2EyeMask(color) {
+  const shape=new THREE.Shape();shape.moveTo(-.50,-.08);shape.quadraticCurveTo(-.50,.25,-.25,.25);shape.quadraticCurveTo(0,.15,.25,.25);shape.quadraticCurveTo(.50,.25,.50,-.08);shape.quadraticCurveTo(.43,-.23,.24,-.19);shape.quadraticCurveTo(0,-.11,-.24,-.19);shape.quadraticCurveTo(-.43,-.23,-.50,-.08);shape.closePath();
+  for(const s of [-1,1]){const h=new THREE.Path();h.absellipse(s*.215,.025,.158,.162,0,2*PI,true);shape.holes.push(h);}
+  const g=new THREE.ExtrudeGeometry(shape,{depth:.032,bevelEnabled:true,bevelThickness:.012,bevelSize:.012,bevelSegments:1,curveSegments:10});
+  const r=part(g,color,[.51,0,0],[0,PI/2,0]);g.dispose();return r;
+}
+function jpR2Hood(look,kind) {
+  return jpR2Morph(PROFILES.map(P=>{
+    const h=P.hw,parts=[jpR2Shell(look.color),jpR2EyeMask(kind==='tanuki'?look.motif:look.color)];
+    if(kind==='tanuki'){
+      for(const side of [-1,1]){parts.push(orb(look.motif,[-.08,.56,side*.44],[.20,.22,.18]));parts.push(orb(look.trim,[.07,.59,side*.44],[.055,.12,.11]));}
+      parts.push(jpR2Leaf('#72985a',[-.06,.69,.02],.65,[-PI/2,0,-.4]));
+      parts.push(part(tube([[-.31,.71,.04],[-.03,.73,.05],[.24,.71,.07]],.024,6),'#d5df95'));
+    }else{
+      parts.push(orb(look.belt,[-.60,.09,.18],[.09,.13,.15]));
+      for(const side of [-1,1])parts.push(jpBox(look.belt,[-.73,-.07,.18+side*.12],[.40,.12,.10],[0,side*.30,-.38]));
+    }
+    const g=tight(parts);g.scale(h,h,h);return g;
+  }));
+}
+const jpR2GarmentOriginal=BUILD.jp_garment;
+Object.assign(CUTS, {
+  jp_ninja:{mask:jpClothMask,gap:()=>.10,paint:(d,L)=>Math.abs(d.x+.2)<.15?L.belt:jpLapels(d,L)??L.color},
+  jp_tanuki:{mask:jpClothMask,gap:()=>.11,paint:(d,L)=>d.x>.34||inEll(d.x,d.y,.22,-.16,.42,.56)?L.trim:L.color},
+});
+BUILD.jp_garment=function(L){
+  if(!['jp_ninja','jp_tanuki'].includes(L.cut))return jpR2GarmentOriginal(L);
+  const r=garment(L);
+  if(L.cut==='jp_ninja'){
+    const extra=jpR2Morph(PROFILES.map(P=>{
+      const b=P.bw,x=-P.bl*.13,p=[orb(L.belt,[x,b*.65,.10*b],[.14*b,.12*b,.13*b])];
+      for(const side of [-1,1]){p.push(orb(L.belt,[x,b*.62,side*.26*b],[.12*b,.09*b,.22*b],[side*.35,0,0]));p.push(jpBox(L.belt,[x-.15*b,b*.63,side*.37*b],[.30*b,.06*b,.13*b],[0,side*.35,0]));}
+      return tight(p);
+    }));
+    const geo=mergeGeometries([r.geo,extra]);geo.computeBoundingSphere();geo.boundingSphere.radius*=1.3;r.geo.dispose();extra.dispose();r.geo=geo;
+  }
+  r.hood=jpR2Hood(L,L.cut==='jp_ninja'?'ninja':'tanuki');return r;
+};
+function jpR2Tail(kind,parts,color) {
+  // The cord starts at the actual tail mount; the pendant hangs outside the fur silhouette.
+  parts.push(part(tube([[0,0,0],[0,.04,.42],[0,-.03,.95],[0,-.18,1.03]],.043,12),color));
+  return jpMounted(kind,parts,'tail');
+}
+Object.assign(BUILD,{
+  jp_towel(L){
+    const p=[orb(L.color,[0,.15,0],[.80,.24,.62]),orb(L.color,[.05,.34,-.02],[.77,.16,.58]),
+      jpBox(L.trim,[0,.27,.51],[1.22,.11,.13]),jpBox(L.trim,[0,.27,-.51],[1.22,.11,.13])];
+    p.push(orb(L.color,[.02,.06,.70],[.67,.14,.43],[.75,0,0]),jpBox(L.trim,[.02,-.13,.95],[1.12,.12,.11],[.55,0,0]));
+    for(const x of [-.40,0,.40])p.push(dot(L.trim,[x,.505,0],[.125,.025,.125]));
+    return jpMounted('jp_towel',p);
+  },
+  jp_wagasa(L){
+    const p=[part(new THREE.ConeGeometry(.24,1.15,12),L.color,[0,.18,0],[0,0,-PI/2]),part(new THREE.CylinderGeometry(.045,.045,1.48,8),L.wood,[-.06,.18,0],[0,0,PI/2])];
+    for(const s of [-1,1])p.push(part(tube([[-.50,.19,s*.23],[-.10,.41,s*.13],[.57,.19,0]],.028,8),L.rib));
+    p.push(part(tube([[-.79,.18,0],[-.95,.18,0],[-.98,.36,0],[-.83,.41,0]],.065,10),L.wood));
+    for(const x of [-.29,.20])p.push(part(hoop(.25,.045,16),L.strap,[x,.15,0],[0,PI/2,0]));
+    for(const x of [-.22,.18])p.push(part(tube([[x,.05,-.15],[x,-.32,-.23],[x,-.47,.02],[x,-.30,.25],[x,.05,.18]],.047,12),L.strap));
+    return jpMounted('jp_wagasa',p,'back');
+  },
+  jp_fan(L){
+    const p=[orb(L.color,[0,-.88,1.03],[.67,.62,.10]),part(new THREE.CylinderGeometry(.065,.065,.66,8),L.wood,[0,-1.57,1.03])];
+    for(const side of [-1,1])for(const [x,y]of [[-.26,-.94],[.26,-.94],[0,-.70]])p.push(part(new THREE.TorusGeometry(.26,.05,5,14,PI),L.motif,[x,y,1.03+side*.11]));
+    return jpR2Tail('jp_fan',p,L.wood);
+  },
+  jp_lantern(L){
+    // jpMounted applies a -1.30 translation to this existing kind; counter it once here.
+    const p=[orb(L.color,[0,.43,1.03],[.52,.61,.52])];
+    for(const y of [-.01,.20,.43,.66,.87]){const r=.52*Math.sqrt(Math.max(.05,1-((y-.43)/.61)**2));p.push(part(hoop(r,.035,18),L.rib,[0,y,1.03],[PI/2,0,0]));}
+    for(const y of [-.20,1.08])p.push(part(new THREE.CylinderGeometry(.27,.27,.12,12),L.cap,[0,y,1.03]));
+    p.push(part(tube([[0,1.3,0],[0,1.34,.42],[0,1.27,.95],[0,1.12,1.03]],.043,12),L.cap));
+    return jpMounted('jp_lantern',p,'tail');
+  },
+  jp_foxcharm(L){
+    const p=[part(hoop(.15,.045,16),L.cord,[0,-.25,1.03]),orb(L.color,[0,-.84,1.03],[.36,.59,.32]),orb(L.tip,[.10,-1.34,1.03],[.29,.31,.27],[0,0,-.25]),dot(L.tip,[.19,-1.60,1.03],[.11,.18,.13])];
+    return jpR2Tail('jp_foxcharm',p,L.cord);
+  },
+  jp_daruma_helmet(L){
+    const geo=jpR2Morph(PROFILES.map(P=>{
+      const p=[jpR2Shell(L.color)];
+      for(const side of [-1,1]){
+        p.push(orb(L.face,[.39,-.17,side*.50],[.15,.26,.20]));
+        p.push(part(tube([jpR2ShellPoint(.76,side*.18),jpR2ShellPoint(.85,side*.59),jpR2ShellPoint(.76,side*.98)],.058,12),L.ink));
+        for(const y of [-.08,-.23])p.push(part(tube([[.532,y+.05,side*.42],[.535,y,side*.52],[.48,y+.015,side*.65]],.041,8),L.ink));
+        p.push(part(tube([.99,1.18,1.38,1.58,1.72].map(t=>jpR2ShellPoint(t,side*.40)),.044,12),L.gold));
+      }
+      p.push(part(tube([.99,1.18,1.38,1.58,1.76].map(t=>jpR2ShellPoint(t,0)),.048,12),L.gold));
+      const g=tight(p);g.scale(P.hw*1.04,P.hw*1.04,P.hw*1.04);return g;
+    }));
+    return {mount:'head',geo,stageMorph:true,coverEars:true};
+  },
+});
+// Enlarged shoe silhouettes; all four feet still share a single cached geometry.
+jpShoes=function(L){
+  const p=[];
+  if(L.style==='jp_geta'){
+    p.push(orb('#f5dfbd',[0,.05,0],[.94,.73,.91]),jpBox(L.color,[.08,-.58,0],[2.28,.40,2.10]));
+    for(const x of [-.48,.55])p.push(jpBox(L.sole,[x,-.93,0],[.40,.40,1.95]));
+    for(const side of [-1,1])p.push(part(tube([[.81,.33,0],[.20,.78,side*.38],[-.30,-.27,side*.97]],.225,9),L.trim));
+    p.push(part(new THREE.CylinderGeometry(.84,.89,.30,16,1,true),L.trim,[-.16,.38,0]));
+  }else{
+    p.push(orb(L.color,[-.17,-.02,0],[.98,.93,1.05]),orb(L.color,[.77,-.28,-.37],[.50,.59,.48]),orb(L.color,[.77,-.28,.48],[.48,.57,.36]));
+    p.push(part(new THREE.CylinderGeometry(.76,.84,.38,18,1,true),L.trim,[-.10,.60,0],[0,0,0],[1,1,1.03]));
+    p.push(orb(L.sole,[.08,-.81,0],[1.12,.18,1.06]));
+  }
+  return {mount:'paw',geo:tight(p)};
 };
 
 const looks = new Map();

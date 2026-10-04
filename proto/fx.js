@@ -51,12 +51,13 @@ const puffTex = () => canvasTex(64, 64, (x) => {
 // Dash trails bought in the wardrobe: one atlas, one Points batch for every kind.
 // Cells: 0 crumb, 1 heart, 2 petal, 3 bubble, 4 star, 5 soft dot (tinted: rainbow), 6 leaf and
 // 7 snowflake (both drawn light, tinted per particle; seasons use them too).
-export const TRAIL_CELL = { crumbs: 0, hearts: 1, petals: 2, bubbles: 3, stars: 4, rainbow: 5, leaves: 6, snow: 7 };
+export const TRAIL_CELL = { crumbs: 0, hearts: 1, petals: 2, bubbles: 3, stars: 4, rainbow: 5, leaves: 6, snow: 7, sakura: 2, origami: 8 };
+const SAKURA = ['#ffb6d0','#ffd6e6','#eda0c1'].map(c=>new THREE.Color(c));
 const LEAFY = ['#f08a3c', '#e8603a', '#f5b942'].map((c) => new THREE.Color(c));
 const SNOWY = ['#ffffff', '#dceaff'].map((c) => new THREE.Color(c));
 const RAINBOW = ['#ff8fa3', '#ffc078', '#ffe066', '#9be38b', '#8cc8ff', '#c5a3ff'].map((c) => new THREE.Color(c));
 let atlas = null;
-export const trailTex = () => atlas ??= canvasTex(256, 128, (x) => {
+export const trailTex = () => atlas ??= canvasTex(256, 256, (x) => {
   const cell = (i, draw) => { x.save(); x.translate((i % 4) * 64 + 32, Math.floor(i / 4) * 64 + 32); draw(); x.restore(); };
   const ink = '#6b3f2a';
   x.lineJoin = 'round';
@@ -110,6 +111,14 @@ export const trailTex = () => atlas ??= canvasTex(256, 128, (x) => {
       x.stroke();
     }
   });
+  cell(8, () => { // Paper crane: broad wings and a folded neck, legible as a small sprite.
+    x.fillStyle='#fff7ed';x.strokeStyle='#b67e91';x.lineWidth=2.5;
+    const poly=p=>{x.beginPath();p.forEach(([a,b],i)=>i?x.lineTo(a,b):x.moveTo(a,b));x.closePath();x.fill();x.stroke();};
+    poly([[-26,-22],[-22,9],[0,10]]);poly([[26,-22],[20,10],[0,10]]);
+    x.fillStyle='#efd4d9';poly([[-12,12],[0,-2],[12,12],[0,19]]);
+    x.fillStyle='#fff7ed';poly([[7,12],[14,5],[15,-9],[21,-12],[26,-8],[20,-8],[20,8],[13,17]]);
+    x.strokeStyle='#dcadb9';x.lineWidth=2;x.beginPath();x.moveTo(-24,-18);x.lineTo(0,10);x.lineTo(23,-18);x.stroke();
+  });
 });
 const SPLASH = ['#d8f3ff', '#9fd8f5'];
 export const trailMaterial = (map) => new THREE.ShaderMaterial({
@@ -131,7 +140,7 @@ export const trailMaterial = (map) => new THREE.ShaderMaterial({
       p = vec2(c.x * p.x - c.y * p.y, c.y * p.x + c.x * p.y) + 0.5;
       if (p.x < 0.0 || p.x > 1.0 || p.y < 0.0 || p.y > 1.0) discard;
       vec2 cell = vec2(mod(vCell, 4.0), floor(vCell / 4.0));
-      vec4 t = texture2D(uMap, vec2((cell.x + p.x) / 4.0, 1.0 - (cell.y + p.y) / 2.0));
+      vec4 t = texture2D(uMap, vec2((cell.x + p.x) / 4.0, 1.0 - (cell.y + p.y) / 4.0));
       if (t.a * vAlpha < 0.01) discard;
       gl_FragColor = vec4(t.rgb * vColor, t.a * vAlpha);
       #include <colorspace_fragment>
@@ -191,6 +200,7 @@ export class FX {
 
   // `count` new trail particles of `kind` behind a dashing dog.
   trail(kind, pos, dir, R, count) {
+    if (kind === 'origami') count = Math.max(1, Math.ceil(count * .4));
     const cell = TRAIL_CELL[kind] ?? 5, rb = kind === 'rainbow';
     tx.set(-dir.z, 0, dir.x);
     for (let i = 0; i < count; i++) {
@@ -201,12 +211,12 @@ export class FX {
         T.p.y = rb ? R * (1.25 - j * 0.13) : R * (0.4 + Math.random() * 0.9);
         T.v.copy(dir).multiplyScalar(-R * (rb ? 0.2 : 0.8)).addScaledVector(tx, rb ? 0 : jit * 0.8);
         T.v.y = rb ? 0 : R * (kind === 'bubbles' ? 0.9 : kind === 'crumbs' ? 1.2 : 0.5);
-        T.g = kind === 'crumbs' ? R * 5 : kind === 'petals' || kind === 'leaves' ? R * 0.6 : kind === 'snow' ? R * 0.3 : 0;
+        T.g = kind === 'crumbs' ? R * 5 : kind === 'petals' || kind === 'sakura' || kind === 'leaves' ? R * 0.6 : kind === 'snow' ? R * 0.3 : 0;
         // Short-lived, and crumbs vanish before they land: nothing on the grass may look like food.
         T.t = 0; T.life = rb ? 0.5 : kind === 'crumbs' ? 0.35 + Math.random() * 0.1 : 0.5 + Math.random() * 0.3;
-        T.size = R * (rb ? 0.3 : kind === 'crumbs' ? 0.2 + Math.random() * 0.08 : 0.3 + Math.random() * 0.15);
-        T.cell = cell; T.rot = Math.random() * 6.28; T.vr = rb || kind === 'bubbles' ? 0 : (Math.random() - 0.5) * 8;
-        T.c.copy(rb ? RAINBOW[j] : kind === 'leaves' ? LEAFY[i % 3] : kind === 'snow' ? SNOWY[i % 2] : WHITE);
+        T.size = R * (kind === 'origami' ? 0.52 : rb ? 0.3 : kind === 'crumbs' ? 0.2 + Math.random() * 0.08 : 0.3 + Math.random() * 0.15);
+        T.cell = cell; T.rot = kind === 'origami' ? (Math.random()-.5)*.7 : Math.random() * 6.28; T.vr = kind === 'origami' ? (Math.random()-.5)*1.5 : rb || kind === 'bubbles' ? 0 : (Math.random() - 0.5) * 8;
+        T.c.copy(kind === 'sakura' ? SAKURA[i % 3] : rb ? RAINBOW[j] : kind === 'leaves' ? LEAFY[i % 3] : kind === 'snow' ? SNOWY[i % 2] : WHITE);
       }
     }
   }

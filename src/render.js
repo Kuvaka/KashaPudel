@@ -272,7 +272,7 @@ export class Renderer {
     const size = Math.min(110, Math.min(this.vw, this.vh) * 0.26);
     const pad = 12;
     const x0 = pad + safe('left'), y0 = this.vh - size - pad - safe('bottom');
-    ctx.fillStyle = 'rgba(30,70,25,0.55)';
+    ctx.fillStyle = CONFIG.minimap[game.season] ?? CONFIG.minimap.summer;
     roundRect(ctx, x0, y0, size, size, 12); ctx.fill();
     ctx.strokeStyle = 'rgba(255,255,255,0.6)'; ctx.lineWidth = 2; ctx.stroke();
     const sx = size / W.w, sy = size / W.h;

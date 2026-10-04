@@ -6,7 +6,7 @@ import { LOOKS } from './wallet.js';
 
 const W = CONFIG.wardrobe;
 const BY_ID = Object.fromEntries(W.items.map((i) => [i.id, i]));
-const TIER = { common: 'Обычная', rare: 'Редкая', dream: 'Мечта' };
+const TIER = { common: 'Обычная', rare: 'Редкая', epic: 'Эпическая', dream: 'Мечта' };
 const LOOK_TAB = { slot: 'looks', ico: '👑', name: 'Образы' }; // saved outfits, first in the row
 const TABS = [LOOK_TAB, ...W.tabs];
 const noWorld = (o) => Object.keys(o || {}).filter((k) => k !== 'world');

@@ -7,6 +7,11 @@ export const CONFIG = {
   },
 
   world: { w: 2000, h: 2000 },
+  // Dark map colours keep white rivals and the yellow player visible on the minimap.
+  minimap: {
+    summer: 'rgba(30,70,25,0.55)', autumn: '#67513b', winter: '#536779',
+    spring: '#466c42', sakura: '#685364', kyoto: '#585b65', italy: '#6f6242',
+  },
   simHz: 60,
   maxDpr: 2,
 
@@ -67,6 +72,8 @@ export const CONFIG = {
     immuneSec: 4,         // after getting up: no second bump right away
     minSpeed: 140,        // drifts and leaves only stop a dog that runs into them
     regrowSec: 15,
+    sakura: { kind:'leaves',count:12,rMin:27,rMax:36,hit:.7 },
+    italy: { kind:'mud',count:7,rMin:48,rMax:70,hit:.75 }, // damp garden soil, same visual/physical meaning as summer
     summer: { kind: 'mud', count: 7, rMin: 48, rMax: 70, hit: 0.75 },
     autumn: { kind: 'leaves', count: 16, rMin: 24, rMax: 32, hit: 0.7 },
     winter: { kind: 'drift', count: 14, rMin: 28, rMax: 40, hit: 0.75 },
@@ -105,6 +112,7 @@ export const CONFIG = {
 
   // Spring puddles: low grip (the dog slides), and a dash into one shoots the dog ahead.
   puddles: {
+    maps: { spring:12, kyoto:10 },
     count: 12, rMin: 70, rMax: 120,
     grip: 1.2,            // instead of dog.grip (3.2) while on the water: a drift, still steerable
     accelMul: 0.85,       // paws slip a little: speeding up and braking are weaker
@@ -172,6 +180,38 @@ export const CONFIG = {
       { slot: 'world', ico: '🗺', name: 'Мир' },
     ],
     items: [
+      {"id":"jp_daruma_helmet","slot":"head","name":"Шлем «Дарума»","price":600,"tier":"rare","ico":"🔴","bots":false,"look":{"kind":"jp_daruma_helmet","color":"#ce4e55","face":"#fff0d6","gold":"#edc364","ink":"#4d3540"}},
+      // Japanese travel collection: additive IDs, existing prices and saves unchanged.
+      {"id":"jp_sakura_wreath","slot":"head","name":"Венок «Сакура»","price":500,"tier":"rare","ico":"🌸","bots":true,"look":{"kind":"jp_wreath","flower":"#ef9fbe","middle":"#f8d578","band":"#80965d"}},
+      {"id":"jp_kasa","slot":"head","name":"Шляпа каса","price":550,"tier":"rare","ico":"👒","bots":false,"look":{"kind":"jp_kasa","color":"#d9ba77","rim":"#9c7849"}},
+      {"id":"jp_hachimaki","slot":"head","name":"Хатимаки","price":220,"tier":"common","ico":"🔴","bots":true,"look":{"kind":"jp_hachimaki","color":"#fff6e9","disk":"#d74b52"}},
+      {"id":"jp_kanzashi","slot":"head","name":"Канзаси","price":600,"tier":"rare","ico":"🌺","bots":false,"look":{"kind":"jp_kanzashi","flower":"#e68fb7","middle":"#f7d97e","cord":"#b4727a"}},
+      {"id":"jp_fox_ears","slot":"head","name":"Ушки кицунэ","price":550,"tier":"rare","ico":"🦊","bots":false,"look":{"kind":"jp_ears","color":"#ce844c","inner":"#fff1d6","band":"#84644c"}},
+      {"id":"jp_tenugui","slot":"head","name":"Тэнугуи","price":220,"tier":"common","ico":"🧺","bots":true,"look":{"kind":"jp_towel","color":"#fff4de","trim":"#547195"}},
+      {"id":"jp_suzu","slot":"neck","name":"Колокольчик судзу","price":260,"tier":"common","ico":"🔔","bots":true,"look":{"kind":"jp_suzu","cord":"#c75157","gold":"#e9bc5f","ink":"#665244"}},
+      {"id":"jp_waves","slot":"neck","name":"Шарф «Волны»","price":450,"tier":"rare","ico":"🌊","bots":false,"look":{"kind":"jp_waves","color":"#486489","trim":"#f8edd8"}},
+      {"id":"jp_eri","slot":"neck","name":"Воротник кимоно","price":400,"tier":"rare","ico":"🤍","bots":false,"look":{"kind":"jp_eri","color":"#fff3df","trim":"#c95660"}},
+      {"id":"jp_koban","slot":"neck","name":"Монетка кобан","price":300,"tier":"common","ico":"🪙","bots":false,"look":{"kind":"jp_koban","cord":"#c75157","gold":"#e9bc5f","ink":"#977340"}},
+      {"id":"jp_fox_mask","slot":"face","name":"Маска кицунэ","price":650,"tier":"rare","ico":"🎭","bots":false,"look":{"kind":"jp_mask","color":"#fff2df","red":"#c85860","ink":"#66494c"}},
+      {"id":"jp_sensei","slot":"face","name":"Очки «Сэнсэй»","price":280,"tier":"common","ico":"👓","bots":false,"look":{"kind":"jp_specs","color":"#485970","bridge":"#cfaa68"}},
+      {"id":"jp_cheeks","slot":"face","name":"Наклейки «Сакура»","price":200,"tier":"common","ico":"🌸","bots":false,"look":{"kind":"jp_cheeks","flower":"#df93ad","middle":"#ffe6c7"}},
+      {"id":"jp_yukata","slot":"body","name":"Юката «Сакура»","price":650,"tier":"rare","ico":"👘","bots":false,"look":{"kind":"jp_garment","cut":"jp_yukata","color":"#d98fad","trim":"#fff0d8","belt":"#b64d65","motif":"#fff0d8"}},
+      {"id":"jp_happi","slot":"body","name":"Хаппи «Праздник»","price":550,"tier":"rare","ico":"🎐","bots":false,"look":{"kind":"jp_garment","cut":"jp_happi","color":"#4f6c9e","trim":"#fff0d8","belt":"#d88b76","motif":"#fff0d8"}},
+      {"id":"jp_koi","slot":"body","name":"Костюм «Карп кои»","price":1200,"tier":"epic","ico":"🎏","bots":false,"look":{"kind":"jp_garment","cut":"jp_koi","color":"#fff1dc","trim":"#e39354","belt":"#df8753","motif":"#66575c"}},
+      {"id":"jp_ninja","slot":"body","name":"Костюм «Ниндзя-Пу»","price":600,"tier":"rare","ico":"🥷","bots":true,"look":{"kind":"jp_garment","cut":"jp_ninja","color":"#333e53","trim":"#cf5b68","belt":"#dc596a","motif":"#b5b4b0"}},
+      {"id":"jp_tanuki","slot":"body","name":"Костюм «Тануки»","price":1200,"tier":"epic","ico":"🦝","bots":false,"look":{"kind":"jp_garment","cut":"jp_tanuki","color":"#a17c60","trim":"#efd9b6","belt":"#735a4b","motif":"#513d34"}},
+      {"id":"jp_wagasa","slot":"back","name":"Складной вагаса","price":600,"tier":"rare","ico":"🌂","bots":false,"look":{"kind":"jp_wagasa","color":"#c7686e","rib":"#e9b9a2","wood":"#ae8855","strap":"#826559"}},
+      {"id":"jp_daruma","slot":"back","name":"Рюкзак-дарума","price":650,"tier":"rare","ico":"🎒","bots":false,"look":{"kind":"jp_daruma","color":"#c45c60","face":"#fff0d6","gold":"#e7bd68","ink":"#514244","strap":"#876455"}},
+      {"id":"jp_maneki","slot":"back","name":"Пассажир «Манэки-нэко»","price":2200,"tier":"dream","ico":"🐱","bots":false,"look":{"kind":"jp_maneki","color":"#fff0d8","red":"#ca6268","gold":"#e8bd63","ink":"#594745","pad":"#c76770"}},
+      {"id":"jp_uchiwa","slot":"tail","name":"Веер утива","price":320,"tier":"common","ico":"🪭","bots":false,"look":{"kind":"jp_fan","color":"#fff0d9","motif":"#557197","wood":"#c29a60"}},
+      {"id":"jp_chochin","slot":"tail","name":"Фонарик тётин","price":450,"tier":"rare","ico":"🏮","bots":false,"look":{"kind":"jp_lantern","color":"#d8787b","rib":"#f5d7b2","cap":"#66524b"}},
+      {"id":"jp_fox_charm","slot":"tail","name":"Подвеска «Лисий хвостик»","price":650,"tier":"rare","ico":"🦊","bots":false,"look":{"kind":"jp_foxcharm","color":"#d87735","tip":"#fff0d7","cord":"#87614c"}},
+      {"id":"jp_geta","slot":"paws","name":"Гэта","price":500,"tier":"rare","ico":"🩴","bots":false,"look":{"kind":"shoes","style":"jp_geta","color":"#c99760","sole":"#9c704b","trim":"#c85561"}},
+      {"id":"jp_tabi","slot":"paws","name":"Таби","price":240,"tier":"common","ico":"🧦","bots":false,"look":{"kind":"shoes","style":"jp_tabi","color":"#edf4ff","sole":"#cfdbed","trim":"#3863a5"}},
+      {"id":"jp_matcha","slot":"coat","name":"Матча-латте","price":400,"tier":"rare","ico":"🍵","bots":false,"look":{"kind":"coat","coat":"#a8ba78","light":"#fff2d6","ear":"#809451"}},
+      {"id":"jp_mochi","slot":"coat","name":"Сакура-моти","price":450,"tier":"rare","ico":"🍡","bots":false,"look":{"kind":"coat","coat":"#f0bacb","light":"#fff4e7","ear":"#9cac70"}},
+      {"id":"jp_petals","slot":"trail","name":"Рывок «Сакура»","price":400,"tier":"rare","ico":"🌸","bots":false,"look":{"kind":"trail","fx":"sakura"}},
+      {"id":"jp_origami","slot":"trail","name":"Рывок «Оригами»","price":1200,"tier":"epic","ico":"🕊️","bots":false,"look":{"kind":"trail","fx":"origami"}},
       { id: 'bow', slot: 'head', name: 'Бант «Клубника»', price: 120, tier: 'common', ico: '🎀', bots: true, look: { kind: 'bow', color: '#ff6f9f', knot: '#ff4f86', dots: '#ffffff' } },
       { id: 'daisy', slot: 'head', name: 'Ромашка', price: 160, tier: 'common', ico: '🌼', bots: true, look: { kind: 'daisy' } },
       { id: 'beret', slot: 'head', name: 'Мятный берет', price: 260, tier: 'common', ico: '🫐', bots: true, look: { kind: 'beret', color: '#8fe3c4' } },
@@ -237,6 +277,9 @@ export const CONFIG = {
       { id: 'autumn', slot: 'world', name: 'Осень', price: 800, tier: 'rare', ico: '🍂', world: 'autumn' },
       { id: 'winter', slot: 'world', name: 'Зима', price: 1000, tier: 'rare', ico: '❄️', world: 'winter' },
       { id: 'spring', slot: 'world', name: 'Весна', price: 1200, tier: 'rare', ico: '🌸', world: 'spring' },
+      { id:'sakura',slot:'world',name:'Сакура вечером',price:1400,tier:'rare',ico:'🌸',world:'sakura' },
+      { id:'italy',slot:'world',name:'Тосканский полдень',price:1600,tier:'rare',ico:'🌿',world:'italy' },
+      { id:'kyoto',slot:'world',name:'Улочки Киото',price:1800,tier:'rare',ico:'🏮',world:'kyoto' },
     ],
   },
 };

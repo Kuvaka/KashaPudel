@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { mergeGeometries, mergeVertices } from 'three/addons/BufferGeometryUtils.js';
 import { curls } from './dogModel.js';
 import { toonMaterial, outlineMaterial } from './toon.js';
-import { springPuddles, seasonObstacles } from '../src/game.js';
+import { mapPuddles, seasonObstacles } from '../src/game.js';
 
 const TAU = Math.PI * 2;
 const smooth = (e0, e1, x) => { const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); };
@@ -33,11 +33,12 @@ function valueNoise(seed) {
 // --- Layout ------------------------------------------------------------------------------------
 // The field is [0, W] x [0, H]; the camera looks "north" (towards -z). Pond and large props are
 // beyond the fence so no dog ever walks through them.
-function layout(W, H) {
+function layout(W, H, theme) {
   const pond = { x: W + 230, z: -170, r: 190 };
   // Two soft decorative paths (flat, walkable): an arc through the south-west corner and a
   // meandering one across the north-east towards the pond.
   const path = (x, z) => {
+    if (theme === 'kyoto') return Math.min(Math.abs(x-W*.5),Math.abs(z-H*.5))/2.4;
     const dx = x, dz = z - H, a = Math.atan2(-dz, dx);
     const p1 = Math.abs(Math.hypot(dx, dz) - (620 + 40 * Math.sin(a * 5 + 1)));
     const u = x / W, p2 = Math.abs(z - H * (0.38 - 0.3 * u) - 45 * Math.sin(u * 9.0)) * 0.9;
@@ -48,7 +49,7 @@ function layout(W, H) {
   const cr = rng(77);
   for (let i = 0; i < 7; i++) clearings.push({ x: W * (0.1 + 0.8 * cr()), z: H * (0.1 + 0.8 * cr()),
     rx: 110 + cr() * 140, rz: 80 + cr() * 110, a: cr() * TAU });
-  return { pond, path, pathHalf: 24, clearings };
+  return { pond, path, pathHalf: 24, clearings: theme === 'kyoto' ? [] : clearings };
 }
 
 // --- Ground ------------------------------------------------------------------------------------
@@ -105,7 +106,7 @@ function groundMaterial(W, H, M, S) {
       cClear: { value: col(G.clear) },
       cPath: { value: col(G.path) }, cPathEdge: { value: col(G.pathEdge) },
       cWater: { value: col(G.water) }, cWaterLight: { value: col(G.waterLight) }, cShore: { value: col(G.shore) },
-      uIce: { value: S.ice ? 1 : 0 }, uDetailK: { value: G.detail ?? 0.08 },
+      uPaving: { value: S.paved ? 1 : 0 }, uIce: { value: S.ice ? 1 : 0 }, uDetailK: { value: G.detail ?? 0.08 },
     },
     vertexShader: `
       varying vec2 vW;
@@ -116,7 +117,7 @@ function groundMaterial(W, H, M, S) {
       }`,
     fragmentShader: `
       uniform sampler2D uMap, uDetail;
-      uniform float uX0, uSpan, uTime, uIce, uDetailK;
+      uniform float uX0, uSpan, uTime, uIce, uDetailK, uPaving;
       uniform vec2 uField;
       uniform vec3 cClear, cDark, cMid, cLight, cPath, cPathEdge, cWater, cWaterLight, cShore;
       varying vec2 vW;
@@ -142,6 +143,42 @@ function groundMaterial(W, H, M, S) {
         float p = m.g * 60.0;
         c = mix(c, cPathEdge, (1.0 - smoothstep(24.0, 30.0, p)) * 0.55);
         c = mix(c, cPath, 1.0 - smoothstep(17.0, 23.0, p));
+        // Kyoto is flat painted stone. These rings and lanes never enter collision data.
+        if (uPaving > 0.5) {
+          vec2 centre = vW - uField * 0.5;
+          float radius = length(centre);
+          float mainDistance = min(abs(centre.x), abs(centre.y));
+          float diagonalDistance = min(abs(centre.x - centre.y), abs(centre.x + centre.y)) * 0.707107;
+          float mainEdge = 1.0 - smoothstep(55.0, 59.0, mainDistance);
+          float mainFill = 1.0 - smoothstep(44.0, 48.0, mainDistance);
+          float diagonalEdge = 1.0 - smoothstep(16.0, 20.0, diagonalDistance);
+          float diagonalFill = 1.0 - smoothstep(10.0, 14.0, diagonalDistance);
+          vec3 paving = mix(cMid, cLight, smoothstep(0.35, 0.72, t));
+          paving = mix(paving, cPathEdge, max(mainEdge, diagonalEdge) * 0.65);
+          paving = mix(paving, cPath, max(mainFill, diagonalFill));
+
+          // A 310-unit plaza intersects the starting ring, so its border is in the first view.
+          float plaza = 1.0 - smoothstep(308.0, 313.0, radius);
+          vec3 plazaStone = mix(cClear, cPath, smoothstep(145.0, 152.0, radius) * 0.42);
+          float innerRing = 1.0 - smoothstep(3.0, 6.0, abs(radius - 148.0));
+          float outerRing = 1.0 - smoothstep(5.0, 8.0, abs(radius - 294.0));
+          plazaStone = mix(plazaStone, cPathEdge, max(innerRing * 0.38, outerRing * 0.65));
+          paving = mix(paving, plazaStone, plaza);
+
+          // Low-contrast joints and sparse moss; no raised clumps on the race line.
+          float row = floor(vW.y / 28.0);
+          vec2 tile = vec2((vW.x + mod(row, 2.0) * 22.0) / 44.0, vW.y / 28.0);
+          vec2 tileEdge = min(fract(tile), 1.0 - fract(tile));
+          float joint = 1.0 - smoothstep(0.022, 0.055, min(tileEdge.x, tileEdge.y));
+          float mossPatch = smoothstep(0.57, 0.68, texture2D(uMap, (vW * 2.4 - uX0) / uSpan + 0.19).r);
+          paving *= 1.0 - joint * 0.065;
+          paving = mix(paving, vec3(0.18, 0.235, 0.14), joint * mossPatch * 0.28 * (1.0 - plaza * 0.8));
+          paving = mix(paving, paving * vec3(0.84, 0.9, 0.92), outside);
+          float fenceShade = 1.0 - smoothstep(0.0, 70.0, min(in2.x, in2.y));
+          paving *= 1.0 - 0.14 * fenceShade * (1.0 - outside);
+          c = paving * (1.0 - 0.025 * smoothstep(0.45, 0.65, cl));
+        }
+
         // Pond: grass rim, water, light ripples.
         float d = m.b * 120.0 - 60.0;
         c = mix(c, cShore, 1.0 - smoothstep(6.0, 8.0, d));
@@ -309,16 +346,18 @@ function mushroomGeometry() {
 
 // Fence along the field border: posts and two rails, merged. outlineDir = direction from each
 // piece's own centre, so the hull of a box stays closed.
-function fenceGeometry(W, H) {
+function fenceGeometry(W, H, lanterns = false, fenceColor = '#ffffff') {
+  const baseColor = new THREE.Color(fenceColor);
   const parts = [], step = 70, postH = 34;
-  const add = (g, cx, cy, cz) => {
+  const add = (g, cx, cy, cz, color = baseColor) => {
     g = strip(g);
     const pos = g.attributes.position, od = new Float32Array(pos.count * 3), v = new THREE.Vector3();
     for (let i = 0; i < pos.count; i++) {
       v.fromBufferAttribute(pos, i).sub(new THREE.Vector3(cx, cy, cz)).normalize().toArray(od, i * 3);
     }
     g.setAttribute('outlineDir', new THREE.BufferAttribute(od, 3));
-    const sh = new Float32Array(pos.count * 3).fill(1);
+    const sh = new Float32Array(pos.count * 3);
+    for (let i = 0; i < pos.count; i++) color.toArray(sh, i * 3);
     g.setAttribute('color', new THREE.BufferAttribute(sh, 3));
     parts.push(g);
   };
@@ -327,7 +366,21 @@ function fenceGeometry(W, H) {
     for (let i = 0; i < n; i++) {
       const t0 = i / n, t1 = (i + 1) / n;
       const px = x0 + (x1 - x0) * t0, pz = z0 + (z1 - z0) * t0;
-      const post = new THREE.BoxGeometry(9, postH, 9); post.translate(px, postH / 2, pz); add(post, px, postH / 2, pz);
+      const hasLantern = lanterns && i % 4 === 0;
+      const height = hasLantern ? 56 : postH;
+      const post = new THREE.BoxGeometry(9, height, 9);
+      post.translate(px, height / 2, pz); add(post, px, height / 2, pz);
+      if (hasLantern) {
+        // Warm painted panels, not additional lights; merged into the existing fence batch.
+        const lamp = new THREE.BoxGeometry(16, 18, 16);
+        lamp.translate(px, 65, pz); add(lamp, px, 65, pz, new THREE.Color('#ffe3a9'));
+        const cap = new THREE.BoxGeometry(22, 4, 22);
+        cap.translate(px, 76, pz); add(cap, px, 76, pz);
+        for (const dx of [-7, 7]) for (const dz of [-7, 7]) {
+          const frame = new THREE.BoxGeometry(2, 19, 2);
+          frame.translate(px + dx, 65, pz + dz); add(frame, px + dx, 65, pz + dz);
+        }
+      }
       for (const y of [postH * 0.45, postH * 0.82]) {
         const mx = x0 + (x1 - x0) * (t0 + t1) / 2, mz = z0 + (z1 - z0) * (t0 + t1) / 2;
         const rail = new THREE.BoxGeometry(len / n, 5, 4); rail.rotateY(-a); rail.translate(mx, y, mz); add(rail, mx, y, mz);
@@ -427,6 +480,90 @@ function boneGeometry() {
   return g;
 }
 
+// Map food: small, merged, indexed models. Surface detail is deliberately broad.
+function mealPart(g,role=1,color='#ffffff',pos=[0,0,0],scale=[1,1,1],rot=[0,0,0]){
+ const c=new THREE.Color(color);g.scale(...scale);g.rotateX(rot[0]);g.rotateY(rot[1]);g.rotateZ(rot[2]);g.translate(...pos);
+ const p=piece(g,role,[c.r,c.g,c.b]);g.dispose();return p;
+}
+const mealBall=(role,c,p,s,segments=8)=>mealPart(new THREE.SphereGeometry(1,segments,4),role,c,p,s);
+const mealBox=(role,c,p,s,rot=[0,0,0])=>mealPart(new THREE.BoxGeometry(1,1,1),role,c,p,s,rot);
+function mealSlab(pts,h=.18,b=.035){
+ const s=new THREE.Shape();pts.forEach(([x,y],i)=>i?s.lineTo(x,y):s.moveTo(x,y));s.closePath();
+ return new THREE.ExtrudeGeometry(s,{depth:h,steps:1,bevelEnabled:b>0,bevelSize:b,bevelThickness:b,bevelSegments:1,curveSegments:1}).rotateX(-Math.PI/2);
+}
+function mealTube(pts,r=.065,n=8){return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts.map(p=>new THREE.Vector3(...p))),n,r,3,false);}
+function mealDisc(r,y,role,color='#ffffff',n=10){return mealPart(new THREE.CircleGeometry(r,n),role,color,[0,y,0],[1,1,1],[-Math.PI/2,0,0]);}
+function mealPlate(role=0,c='#eee5ce'){
+ return mealPart(new THREE.LatheGeometry(v2([[0,0],[.77,0],[1,.12],[.96,.20],[.73,.09],[0,.09]]),10),role,c);
+}
+function mealFinish(parts){
+ const raw=mergeGeometries(parts),g=mergeVertices(raw,1e-5);raw.dispose();parts.forEach(p=>p.dispose());
+ const p=g.attributes.position;let radius=0,minY=Infinity;
+ for(let i=0;i<p.count;i++){radius=Math.max(radius,Math.hypot(p.getX(i),p.getZ(i)));minY=Math.min(minY,p.getY(i));}
+ // Unit footprint; updateFood applies the existing type radius and visual-size multiplier.
+ g.translate(0,-minY+.025,0);g.scale(1/radius,1/radius,1/radius);g.computeBoundingBox();g.computeBoundingSphere();
+ return g;
+}
+function nigiriFood(){
+ const p=[mealBall(1,'#ffffff',[0,.24,0],[.94,.25,.52]),mealBall(2,'#ffffff',[0,.49,0],[.98,.15,.54])];
+ for(const x of [-.30,.29])p.push(mealBox(0,'#ffe6ca',[x,.632,0],[.13,.012,.76],[0,.3,0]));
+ return mealFinish(p);
+}
+function makiFood(){
+ return mealFinish([mealPart(new THREE.CylinderGeometry(.76,.73,.64,10),1,'#ffffff',[0,.32,0]),mealDisc(.62,.65,0,'#fff3d9'),mealBox(2,'#ffffff',[0,.67,0],[.48,.05,.48])]);
+}
+function onigiriFood(){
+ const p=[mealPart(mealSlab([[-.82,-.49],[-.72,-.68],[.72,-.68],[.82,-.49],[.16,.85],[-.16,.85]],.35,.05),1)];
+ p.push(mealBox(2,'#ffffff',[0,.425,.38],[.55,.035,.58]),mealBox(2,'#ffffff',[0,.20,.744],[.55,.40,.035]));return mealFinish(p);
+}
+function ramenFood(){
+ const p=[mealPart(new THREE.LatheGeometry(v2([[0,0],[.52,0],[.85,.46],[.85,.55],[.72,.51]]),10),1),mealDisc(.73,.49,2)];
+ p.push(mealPart(new THREE.TorusGeometry(.39,.065,3,10,Math.PI*1.75),0,'#fff0b9',[-.08,.54,0],[1,1,1],[Math.PI/2,0,.4]));
+ p.push(mealPart(new THREE.CircleGeometry(1,10),0,'#fff9e6',[.27,.64,.15],[.31,.37,1],[-Math.PI/2,0,0]),mealPart(new THREE.CircleGeometry(1,8),0,'#e7b649',[.27,.655,.15],[.15,.18,1],[-Math.PI/2,0,0]));
+ return mealFinish(p);
+}
+function wokFood(){
+ const p=[mealPart(new THREE.CylinderGeometry(.98,.73,.60,4,1),1,'#ffffff',[0,.30,0],[1,1,1],[0,Math.PI/4,0]),mealBox(2,'#ffffff',[0,.61,0],[1.16,.025,1.16])];
+ p.push(mealPart(mealTube([[-.45,.66,-.32],[.34,.66,-.15],[-.30,.66,.12],[.30,.66,.38]],.085,8),0,'#fff1bd'));
+ for(const z of [-.22,.15])p.push(mealBox(0,'#ac8251',[0,.77,z],[1.45,.08,.085],[0,-.23,0]));
+ p.push(mealBox(0,'#7b9956',[-.37,.69,.34],[.25,.12,.27]));return mealFinish(p);
+}
+function taiyakiFood(){
+ const p=[mealBall(1,'#ffffff',[.16,.28,0],[.71,.25,.50])];
+ p.push(mealPart(mealSlab([[-.95,-.44],[-.95,.44],[-.35,0]],.17,.025),1,'#ffffff',[0,.16,0]));
+ p.push(mealPart(mealSlab([[-.07,0],[.25,.20],[-.16,.30]],.035,.015),2,'#ffffff',[0,.53,0]));
+ p.push(mealBall(0,'#66402b',[.48,.51,.13],[.07,.035,.07],5));return mealFinish(p);
+}
+function pizzaSliceFood(){
+ const tri=[[-.84,-.60],[.84,-.60],[0,.94]],p=[mealPart(mealSlab(tri,.16,.045),1)];
+ p.push(mealPart(mealSlab(tri,.025,.02),2,'#ffffff',[0,.21,0],[.81,1,.81]));
+ p.push(mealPart(new THREE.CylinderGeometry(.13,.13,1.62,8),1,'#ffffff',[0,.22,.56],[1,1,1],[0,0,Math.PI/2]));
+ p.push(mealPart(mealSlab([[-.31,-.25],[.33,-.29],[.02,.37]],.015,.025),0,'#fff0b7',[0,.26,0]));return mealFinish(p);
+}
+function ravioliFood(){
+ const pts=[[-.64,-.67],[-.23,-.76],[.23,-.67],[.65,-.73],[.73,-.23],[.66,.23],[.70,.66],[.24,.75],[-.23,.67],[-.65,.73],[-.73,.24],[-.66,-.23]];
+ return mealFinish([mealPart(mealSlab(pts,.10,.035),1),mealBall(2,'#ffffff',[0,.17,0],[.51,.20,.51])]);
+}
+function cantucciFood(){
+ const p=[mealBall(1,'#ffffff',[0,.20,0],[1,.24,.43])];
+ for(const x of [-.34,.31])p.push(mealBall(2,'#ffffff',[x,.425,0],[.15,.025,.22],5));return mealFinish(p);
+}
+function spaghettiFood(){
+ const p=[mealPlate(0,'#f3e9d3')];
+ for(const [x,z,r]of [[-.20,-.14,.37],[.23,-.1,.35],[0,.23,.35]])p.push(mealPart(new THREE.TorusGeometry(r,.095,3,8),1,'#ffffff',[x,.19,z],[1,1,1],[Math.PI/2,0,0]));
+ p.push(mealBall(2,'#ffffff',[.16,.32,.03],[.30,.17,.29],6),mealPart(mealSlab([[0,-.18],[.17,0],[0,.22],[-.1,0]],.02,0),0,'#67884d',[-.23,.34,0]));return mealFinish(p);
+}
+function gelatoFood(){
+ const p=[mealPart(new THREE.ConeGeometry(.40,1.04,8),1,'#ffffff',[-.43,.28,0],[1,1,1],[0,0,Math.PI/2]),mealBall(2,'#ffffff',[.36,.35,0],[.55,.41,.50]),mealBall(0,'#eab2c6',[.38,.69,0],[.33,.14,.29],6)];
+ return mealFinish(p);
+}
+function pizzaWholeFood(){
+ const p=[mealPart(new THREE.LatheGeometry(v2([[0,0],[.91,0],[1,.12],[.94,.26],[.78,.21],[0,.21]]),12),1),mealDisc(.79,.235,2, '#ffffff',12)];
+ for(const [x,z]of [[-.30,-.25],[.31,-.12],[0,.33]]){p.push(mealBall(0,'#fff0b7',[x,.255,z],[.23,.035,.20],6));}
+ p.push(mealPart(mealSlab([[0,-.15],[.17,0],[0,.18],[-.1,0]],.02,0),0,'#6b8b4e',[.22,.30,.24]));return mealFinish(p);
+}
+const MEAL_GEOMETRIES={nigiri:nigiriFood,maki:makiFood,onigiri:onigiriFood,ramen:ramenFood,wok:wokFood,taiyaki:taiyakiFood,pizza_slice:pizzaSliceFood,ravioli:ravioliFood,cantucci:cantucciFood,spaghetti:spaghettiFood,gelato:gelatoFood,pizza_whole:pizzaWholeFood};
+
 // --- Instanced scatter with camera culling ----------------------------------------------------
 class Scatter {
   constructor(scene, geo, mat, items, lineMat = null) {
@@ -469,7 +606,7 @@ function place(x, y, z, yaw, sx, sy = sx, sz = sx) {
 
 // --- Seasons -----------------------------------------------------------------------------------
 // One world, four paint jobs. Counts are multipliers of the summer amounts.
-const SEASONS = {
+export const SEASONS = {
   summer: {
     sky: '#4f7f33', tufts: 1, flowers: 1, blossoms: 0.5, shadow: '#1d3a10', fence: '#b07a45', trunk: '#8a5a35',
     ground: { dark: '#789f48', mid: '#7fa74c', light: '#87ae53', clear: '#90b55c', path: '#dcb98a', pathEdge: '#b99063',
@@ -507,19 +644,137 @@ const SEASONS = {
     stoneTint: '#ffffff', stoneMix: 0,
   },
 };
+Object.assign(SEASONS, {
+  sakura: {
+    sky: '#b99ab7', groundPetals: 900, petal: ['#ffc4d8', '#f7a9c6', '#ffdbe7'],
+    tufts: 0.55, flowers: 0.22, blossoms: 1, shadow: '#5a4a6a',
+    fence: '#92716a', trunk: '#75524d', shadowStretch: 1.5,
+    // The ground shader is unlit; its evening palette must accompany the light rig.
+    ground: {
+      dark: '#717965', mid: '#7e846a', light: '#8c9072', clear: '#999779',
+      path: '#c5a497', pathEdge: '#99818f', water: '#687d9a', waterLight: '#d8b5cf',
+      shore: '#788275', detail: 0.045,
+    },
+    tuft: ['#728865', '#819778'], flower: ['#ecd1db', '#dac4de'],
+    leaf: ['#748d69', '#849973'], bush: ['#b67d99', '#c893ad', '#bcb39a'],
+    blossom: ['#ffd1e2', '#ffb4d0', '#f5d7e6'], crown: ['#d991b1', '#e8acc6', '#f2c3d5'],
+    far: ['#bb91aa', '#cba3b8', '#baa2b5'], lily: ['#839886'], stoneTint: '#bdaab8', stoneMix: 0.25,
+    // Neutral fill preserves white coats; the directional light supplies the warm sunset.
+    hemi: ['#f1e4ec', '#625575', 1.55], sun: ['#ffcea9', 1.5, [-1, 0.55, 0.4]],
+  },
+  kyoto: {
+    sky: '#9294ac', architecture: 'kyoto', paved: true, groundPetals: 350,
+    petal: ['#f2bfd2', '#e8a9c3'], tufts: 0, flowers: 0, blossoms: 0.12,
+    shadow: '#545663', fence: '#736b66', trunk: '#75605c',
+    ground: {
+      dark: '#a8a4a0', mid: '#b0aca6', light: '#b9b5ad', clear: '#c4bcae',
+      path: '#c6c0b4', pathEdge: '#77767b', water: '#748e9b', waterLight: '#c0cbd6',
+      shore: '#aaa499', detail: 0.015,
+    },
+    tuft: ['#718775'], flower: ['#d7b6c5'], leaf: ['#72816c'], bush: ['#6f806b', '#83927c'],
+    blossom: ['#e6bdcf'], crown: ['#8f9f8c'], far: ['#8b9392'], lily: ['#82948b'],
+    stoneTint: '#aaa4a0', stoneMix: 0.6,
+    hemi: ['#f3efff', '#77777f', 2.15], sun: ['#ffe9d1', 1.4, [-0.8, 0.7, 0.45]],
+  },
+
+ italy: {
+  sky:'#92b7ce',architecture:'italy',tufts:.55,flowers:.3,blossoms:.55,shadow:'#66653e',fence:'#b29065',trunk:'#85714f',shadowStretch:.85,
+  ground:{dark:'#939555',mid:'#9da061',light:'#a8ab70',clear:'#b2b67e',path:'#c59878',pathEdge:'#aa7f63',water:'#64adae',waterLight:'#ade0d5',shore:'#8d975f',detail:.045},
+  tuft:['#899752','#9aaa62'],flower:['#a59abe','#b3a4ca'],leaf:['#7b8e50','#899b59'],bush:['#73884f','#81985c'],blossom:['#e3c865','#b3a1c7'],crown:['#65865e','#71936c'],far:['#8aa18a','#809b87'],lily:['#83a16c'],stoneTint:'#c6b58e',stoneMix:.25,
+  hemi:['#fff8ec','#899572',2.3],sun:['#fff2d8',2.05,[-.45,1.2,.6]],
+ },
+});
+// Reuse light objects in both scenes; unknown IDs restore the original summer rig.
+export function applyMapLight(hemi,sun,id){
+ const S=SEASONS[id]??SEASONS.summer,h=S.hemi??['#fff6e6','#7a9a50',2.3],d=S.sun??['#fff0d0',2,[-.5,1,.7]];
+ hemi.color.set(h[0]);hemi.groundColor.set(h[1]);hemi.intensity=h[2];sun.color.set(d[0]);sun.intensity=d[1];sun.position.set(...d[2]);
+}
+
 for (const S of Object.values(SEASONS)) S.stoneTint = new THREE.Color(S.stoneTint);
 for (const [id, S] of Object.entries(SEASONS)) S.id = id;
 export const SEASON_IDS = Object.keys(SEASONS);
 
+// Low-poly, vertex-coloured travel props. All hard scenery stays beyond the fence.
+function travelPart(g,color,pos=[0,0,0],scale=[1,1,1],rot=0){
+ const c=new THREE.Color(color);g=strip(colored(g,c.r,c.g,c.b));g.scale(...scale);g.rotateZ(rot);g.translate(...pos);return g;
+}
+function travelMerge(parts){const g=mergeGeometries(parts);const out=mergeVertices(g);g.dispose();parts.forEach(p=>p.dispose());out.computeBoundingSphere();return out;}
+function travelBox(color,p,s,rot=0){return travelPart(new THREE.BoxGeometry(1,1,1),color,p,s,rot);}
+function houseGeometry(style){
+ const jp=style==='kyoto',wall=jp?'#c8beb0':'#dfbd86',roof=jp?'#505763':'#b5765d',wood=jp?'#63504a':'#65816c',parts=[];
+ parts.push(travelBox(wall,[0,.44,0],[1.55,.88,.92]));
+ if(jp){
+  for(const side of [-1,1])parts.push(travelBox(roof,[side*.43,1.01,0],[1.03,.10,1.20],-side*.32));
+  parts.push(travelBox(wood,[0,.91,.49],[1.65,.09,.09]));
+  parts.push(travelBox('#414752',[0,1.22,0],[.09,.08,1.24]));
+  const awning=new THREE.BoxGeometry(1.68,.055,.30);awning.rotateX(.20);parts.push(travelPart(awning,roof,[0,.77,.58]));
+  for(const z of [-.5,-.25,0,.25,.5])for(const side of [-1,1])parts.push(travelBox('#606672',[side*.43,1.067,z],[1.03,.017,.017],-side*.32));
+  for(const x of [-.69,0,.69])parts.push(travelBox(wood,[x,.44,.49],[.07,.88,.075]));
+ }else{
+  const r=new THREE.CylinderGeometry(0,1,1,4,1);r.rotateY(Math.PI/4);
+  parts.push(travelPart(r,roof,[0,1.08,0],[1.38,.50,.93]));
+  parts.push(travelBox(wall,[.50,1.19,-.22],[.16,.40,.18]));
+ }
+ for(const x of [-.43,.43]){
+  // Baked amber, deliberately NOT described as emissive or a light source.
+  parts.push(travelBox(jp?'#dbb887':'#71917e',[x,.55,.474],[.32,.35,.035]));
+  if(jp)for(const dx of [-.10,0,.10])parts.push(travelBox(wood,[x+dx,.55,.50],[.022,.37,.018]));
+  else for(const dx of [-.20,.20])parts.push(travelBox(wood,[x+dx,.55,.493],[.075,.38,.05]));
+ }
+ if(jp)for(const x of [-.43,.43])parts.push(travelBox(wood,[x,.55,.51],[.34,.018,.022]));
+ parts.push(travelBox(wood,[0,.23,.48],[.26,.46,.055]));
+ if(!jp){const arc=new THREE.CylinderGeometry(.135,.135,.06,12,1,false,0,Math.PI);arc.rotateX(Math.PI/2);parts.push(travelPart(arc,wood,[0,.46,.48]));}
+ return travelMerge(parts);
+}
+function toriiGeometry(){
+ const p=[],red='#ad534a',cap='#534944';
+ for(const x of [-.55,.55]){p.push(travelPart(new THREE.CylinderGeometry(.07,.09,1.1,8),red,[x,.55,0]));p.push(travelBox(cap,[x,.07,0],[.2,.14,.23]));}
+ p.push(travelBox(red,[0,.85,0],[1.4,.1,.12]),travelBox(red,[0,1.11,0],[1.65,.12,.17]),travelBox(cap,[0,1.19,0],[1.75,.08,.21]));
+ return travelMerge(p);
+}
+function lanternGeometry(){
+ const p=[travelBox('#85858a',[0,.05,0],[.5,.1,.5]),travelBox('#989698',[0,.32,0],[.16,.5,.16]),travelBox('#a5a19e',[0,.64,0],[.38,.28,.38]),travelBox('#ddbc84',[0,.65,.195],[.21,.16,.012])];
+ const roof=new THREE.CylinderGeometry(.06,.40,.2,4);roof.rotateY(Math.PI/4);p.push(travelPart(roof,'#7a7c84',[0,.87,0]));return travelMerge(p);
+}
+function cypressGeometry(){
+ const p=[travelPart(new THREE.CylinderGeometry(.07,.10,.55,7),'#827058',[0,.27,0])];
+ for(const [y,w,h]of [[.65,.25,.48],[1.05,.25,.55],[1.44,.20,.45],[1.73,.12,.30]])p.push(travelPart(new THREE.SphereGeometry(1,10,7),'#416c54',[0,y,0],[w,h,w*.85]));
+ return travelMerge(p);
+}
+function buildTravelDecor(root,S,W,H,lineMat){
+ if(!S.architecture)return {scatters:[],shadows:[]};
+ const jp=S.architecture==='kyoto',houses=[],props=[],shadows=[],white=new THREE.Color('#ffffff');
+ const add=(list,x,z,yaw,s,sx=1)=>list.push({x,z,r:s*1.3,m:place(x,0,z,yaw,s*sx,s,s),c:white});
+ if(jp){
+  // Three edges only: no tall southern foreground wall hides dogs at the low camera angle.
+  for(let i=0;i<11;i++){const x=120+i*(W-240)/10;add(houses,x,-190,0,90,i%3===0?1.12:.95);}
+  for(let i=0;i<8;i++){const z=120+i*(H-240)/7;add(houses,-190,z,Math.PI/2,90);add(houses,W+190,z,-Math.PI/2,90);}
+  const chunks=[];
+  const baked=(g,p,k)=>{g.scale(k,k,k);g.translate(...p);return g;};
+  chunks.push(baked(toriiGeometry(),[W*.5,0,-75],65));
+  for(const x of [W*.5-125,W*.5+125])chunks.push(baked(lanternGeometry(),[x,0,-55],35));
+  const g=travelMerge(chunks),mat=toonMaterial('#ffffff');mat.vertexColors=true;
+  const shrine=new Scatter(root,g,mat,[{x:W*.5,z:-75,r:180,m:new THREE.Matrix4()}],lineMat);
+  const hm=toonMaterial('#ffffff');hm.vertexColors=true;
+  const hs=new Scatter(root,houseGeometry('kyoto'),hm,houses,lineMat);
+  return {scatters:[hs,shrine],shadows:houses};
+ }
+ for(const [x,z,yaw]of [[W*.25,-200,0],[W*.76,-205,0],[-210,H*.58,Math.PI/2]])add(houses,x,z,yaw,130);
+ for(let i=0;i<22;i++){const x=70+i*(W-140)/21;add(props,x,-100,0,60+(i%3)*7);}
+ for(let i=0;i<12;i++){const z=90+i*(H-180)/11;add(props,-95,z,0,60);add(props,W+95,z,0,60);}
+ const hm=toonMaterial('#ffffff');hm.vertexColors=true;const tm=toonMaterial('#ffffff');tm.vertexColors=true;
+ return {scatters:[new Scatter(root,houseGeometry('italy'),hm,houses,lineMat),new Scatter(root,cypressGeometry(),tm,props)],shadows:[...houses,...props]};
+}
+
 // --- Meadow ------------------------------------------------------------------------------------
 export function buildMeadow(scene, W, H, season = 'summer') {
   const S = SEASONS[season] ?? SEASONS.summer;
-  const L = layout(W, H), r = rng(2024);
+  const L = layout(W, H, S.id), r = rng(2024);
   const root = new THREE.Group(); root.name = 'meadow';
   scene.add(root);
   const C = (list) => new THREE.Color(list[Math.floor(r() * list.length)]);
   const inField = (x, z, pad = 0) => x > pad && x < W - pad && z > pad && z < H - pad;
-  const puds = [...(S.id === 'spring' ? springPuddles() : []), ...seasonObstacles(S.id)];
+  const puds = [...mapPuddles(S.id), ...seasonObstacles(S.id)];
   const wet = (x, z, pad) => puds.some((p) => Math.hypot(x - p.x, z - p.y) < p.r * 1.3 + pad);
   const onPath = (x, z, pad) => L.path(x, z) < L.pathHalf + pad || (puds.length > 0 && wet(x, z, pad));
   const inPond = (x, z, pad) => Math.hypot(x - L.pond.x, (z - L.pond.z) * 1.25) < L.pond.r + pad;
@@ -577,7 +832,7 @@ export function buildMeadow(scene, W, H, season = 'summer') {
   const addLeaf = (x, z, s) => leaves.push({ x, z, r: s, m: place(x, 0.5, z, r() * TAU, s), c: C(leafCols) });
   for (let i = 0; i < 70; i++) {
     const x = 60 + r() * (W - 120), z = 60 + r() * (H - 120);
-    if (!onPath(x, z, 16)) addLeaf(x, z, 13 + r() * 8);
+    if (S.id !== 'kyoto' && !onPath(x, z, 16)) addLeaf(x, z, 13 + r() * 8);
   }
 
   // Stones and mushrooms: mostly along the fence and beyond it.
@@ -596,7 +851,7 @@ export function buildMeadow(scene, W, H, season = 'summer') {
     const s = 6 + r() * 10, g = 0.4 + r() * 0.08; // no outline: darker, warm grey, so they sit in the grass
     stones.push({ x, z, r: s * 1.3, m: place(x, s * 0.2, z, r() * TAU, s * (1 + r() * 0.4), s * 0.6, s), c: new THREE.Color(g, g * 0.98, g * 0.9).lerp(S.stoneTint, S.stoneMix) });
   }
-  for (let i = 0; i < 14; i++) { // a few pebbles inside the field
+  for (let i = 0; i < (S.id === 'kyoto' ? 0 : 14); i++) { // a few pebbles inside the field
     const x = 100 + r() * (W - 200), z = 100 + r() * (H - 200);
     if (onPath(x, z, 14)) continue;
     const s = 5 + r() * 4, g = 0.42 + r() * 0.06;
@@ -606,7 +861,7 @@ export function buildMeadow(scene, W, H, season = 'summer') {
 
   const mushMat = toonMaterial('#ffffff'); mushMat.vertexColors = true;
   const mush = [];
-  for (let i = 0; i < 40; i++) {
+  for (let i = 0; i < (S.architecture ? 0 : 40); i++) {
     const [x, z] = edgeSpot(200);
     if (inPond(x, z, 20) || onPath(x, z, 14)) continue;
     const n = 1 + Math.floor(r() * 3);
@@ -618,8 +873,9 @@ export function buildMeadow(scene, W, H, season = 'summer') {
   const mushS = new Scatter(root, mushroomGeometry(), mushMat, mush);
 
   // Fence: one merged mesh + its hull.
-  const fenceMat = toonMaterial(S.fence); fenceMat.vertexColors = true;
-  const fenceGeo = fenceGeometry(W, H);
+  const lanterns = S.id === 'kyoto';
+  const fenceMat = toonMaterial(lanterns ? '#ffffff' : S.fence); fenceMat.vertexColors = true;
+  const fenceGeo = fenceGeometry(W, H, lanterns, lanterns ? S.fence : '#ffffff');
   const fence = new THREE.Mesh(fenceGeo, fenceMat); root.add(fence);
   const fenceLine = new THREE.Mesh(fenceGeo, lineR); root.add(fenceLine);
 
@@ -644,7 +900,7 @@ export function buildMeadow(scene, W, H, season = 'summer') {
     if (u < W) return [u, -d]; if (u < W + H) return [W + d, u - W];
     if (u < 2 * W + H) return [2 * W + H - u, H + d]; return [-d, perim - u];
   };
-  for (let u = 0; u < perim;) {
+  for (let u = 0; u < (S.id === 'kyoto' ? 0 : perim);) {
     const n = 3 + Math.floor(r() * 3);
     for (let k = 0; k < n; k++, u += 34 + r() * 18) {
       const [x, z] = along(u, 40 + r() * 45);
@@ -664,18 +920,18 @@ export function buildMeadow(scene, W, H, season = 'summer') {
   const bushS = new Scatter(root, cloudGeometry(BUSH_PUFFS, 8), bushMat, bushes);
 
   const trees = [], trunks = [], crownCols = S.crown;
-  ring(150, 70, (x, z) => {
+  ring(150, S.id === 'kyoto' ? 0 : S.id === 'italy' ? 24 : 70, (x, z) => {
     if (z > H) z += 90; // south trees stand further out: they lean into the view
     const s = 50 + r() * 26, h = s * (0.8 + r() * 0.7); // crowns at different heights
-    trees.push({ x, z, r: s * 1.3, m: place(x, h + s * 0.55, z, r() * TAU, s, s * 0.9, s), c: C(crownCols) });
+    trees.push({ x, z, r: s * 1.3, m: place(x, h + s * 0.55, z, r() * TAU, s, s * (S.id === 'italy' ? 0.36 : 0.9), s), c: C(crownCols) });
     trunks.push({ x, z, r: s, m: place(x, h * 0.5 + s * 0.2, z, 0, s * 0.18, h + s * 0.4, s * 0.18) });
   });
   // Far row: bigger, lighter and less saturated (aerial haze), so the forest recedes.
   const farCols = S.far;
-  ring(330, 60, (x, z) => {
+  ring(330, S.id === 'kyoto' ? 0 : S.id === 'italy' ? 20 : 60, (x, z) => {
     if (z > H) z += 120;
     const s = 70 + r() * 30, h = s * 1.0;
-    trees.push({ x, z, r: s * 1.3, m: place(x, h + s * 0.55, z, r() * TAU, s, s * 0.9, s), c: C(farCols) });
+    trees.push({ x, z, r: s * 1.3, m: place(x, h + s * 0.55, z, r() * TAU, s, s * (S.id === 'italy' ? 0.36 : 0.9), s), c: C(farCols) });
     trunks.push({ x, z, r: s, m: place(x, h * 0.5 + s * 0.2, z, 0, s * 0.18, h + s * 0.4, s * 0.18) });
   });
   const crownS = new Scatter(root, cloudGeometry(CROWN_PUFFS, 13), bushMat, trees);
@@ -689,29 +945,38 @@ export function buildMeadow(scene, W, H, season = 'summer') {
     lilies.push({ x, z, r: s, m: place(x, 0.8, z, r() * TAU, s), c: C(S.lily) });
     if (r() < 0.4 * S.flowers) flowers.push({ x, z, r: 6, m: place(x + 3, 1.6, z - 2, r() * TAU, 5), c: new THREE.Color('#ffd0e0') });
   }
+  // Fallen petals on the ground (flat pink ovals), where the map asks for them.
+  for (let i = 0; i < (S.groundPetals ?? 0); i++) {
+    const x = -200 + r() * (W + 400), z = -200 + r() * (H + 400);
+    if (inPond(x, z, 10)) continue;
+    const s = 4 + r() * 3.5;
+    lilies.push({ x, z, r: s, m: place(x, 0.6, z, r() * TAU, s, 1, s * 0.62), c: C(S.petal) });
+  }
   const lilyS = new Scatter(root, lilyGeometry(), new THREE.MeshBasicMaterial({ color: '#ffffff' }), lilies);
 
+  const travel=buildTravelDecor(root,S,W,H,lineN);
   // Soft contact shadows under everything that stands on the grass.
   const shadows = [];
   const shadowOf = (list, k, ky = 1) => {
     for (const it of list) {
       tp.setFromMatrixScale(it.m);
-      const sx = tp.x * k, sz = tp.z * k * ky;
+      const sx = tp.x * k * (S.shadowStretch ?? 1), sz = tp.z * k * ky;
       shadows.push({ x: it.x + sx * 0.15, z: it.z + sz * 0.2, r: Math.max(sx, sz), m: place(it.x + sx * 0.15, 0.35, it.z + sz * 0.2, 0, sx * 2, 1, sz * 2) });
     }
   };
-  shadowOf(stones, 1.25); shadowOf(bushes, 1.3); shadowOf(trees, 1.2); shadowOf(mush, 0.7); shadowOf(leaves, 0.8);
+  shadowOf(travel.shadows, .8); shadowOf(stones, 1.25); shadowOf(bushes, 1.3); shadowOf(trees, 1.2); shadowOf(mush, 0.7); shadowOf(leaves, 0.8);
   const shadowMat = new THREE.MeshBasicMaterial({ map: shadowTexture(), transparent: true, depthWrite: false, color: S.shadow });
   const shadowGeo = new THREE.PlaneGeometry(1, 1); shadowGeo.rotateX(-Math.PI / 2);
   const shadowS = new Scatter(root, shadowGeo, shadowMat, shadows);
   shadowS.mesh.renderOrder = -1;
   const trunkS = new Scatter(root, new THREE.CylinderGeometry(0.6, 0.85, 1, 8, 1, true), toonMaterial(S.trunk), trunks);
 
-  const scatters = [tuftS, flowerS, leafS, stoneS, mushS, bushS, crownS, trunkS, lilyS, shadowS];
+  const scatters = [tuftS, flowerS, leafS, stoneS, mushS, bushS, crownS, trunkS, lilyS, shadowS, ...travel.scatters];
   let lastCull = null;
 
   return {
     season: S.id,
+    weatherSources: trees.map(it=>({x:it.x,z:it.z,y:it.m.elements[13],r:it.r})),
     lineMats: [...lineMats],
     ground,
     root,
@@ -754,10 +1019,17 @@ const FOOD_LOOKS = {
   choco: [['round', '#7b4528', '#fff1dc'], ['sandwich', '#5a3322', '#fff7ea'], ['heart', '#7b4528', '#ff9fb5'], ['star', '#6b3b22', '#fff1dc']],
 };
 for (const k in FOOD_LOOKS) FOOD_LOOKS[k] = FOOD_LOOKS[k].map(([shape, dough, deco]) => ({ shape, dough: new THREE.Color(dough), deco: new THREE.Color(deco) }));
+const mealLook=([shape,dough,deco])=>({shape,dough:new THREE.Color(dough),deco:new THREE.Color(deco)});
+const JAPAN_FOOD={id:'japan',basic:[['nigiri','#fff1d5','#e88d72'],['maki','#34483c','#8aa85a'],['onigiri','#fff1d5','#34483c']].map(mealLook),choco:[['ramen','#53678b','#d6ad64'],['wok','#cc716d','#bc8b59']].map(mealLook),bone:mealLook(['taiyaki','#d89c53','#edbf75'])};
+const ITALY_FOOD={id:'italy',basic:[['pizza_slice','#e0b16e','#c96352'],['ravioli','#e8c876','#f3d991'],['cantucci','#c89c61','#fff0c8']].map(mealLook),choco:[['spaghetti','#e9c472','#c95e50'],['gelato','#cba16d','#acc393']].map(mealLook),bone:mealLook(['pizza_whole','#dfb164','#c76150'])};
+export const FOOD_SETS={default:{id:'cookies',...FOOD_LOOKS,bone:null},sakura:JAPAN_FOOD,kyoto:JAPAN_FOOD,italy:ITALY_FOOD};
+export const foodSetFor=world=>FOOD_SETS[world]??FOOD_SETS.default;
+
 const SIZE = { basic: [0.9, 1.08], choco: [0.95, 1.1], bone: [1, 1] }; // choco always reads bigger than basic
 const frac = (x) => x - Math.floor(x);
 
-export function buildFood(scene, max) {
+export function buildFood(scene, max, world = 'summer') {
+  const set = foodSetFor(world), themed = set !== FOOD_SETS.default;
   const lineN = outlineMaterial(false);
   const foodMat = toonMaterial('#ffffff'); foodMat.vertexColors = true;
   foodMat.onBeforeCompile = (sh) => {
@@ -774,25 +1046,44 @@ export function buildFood(scene, max) {
     mesh.frustumCulled = false;
     const line = new THREE.InstancedMesh(geo, lineN, max);
     line.instanceMatrix = mesh.instanceMatrix; line.frustumCulled = false;
+    mesh.count = line.count = 0; mesh.visible = line.visible = false;
     scene.add(mesh, line);
     return { mesh, line, n: 0 };
   };
   const shapes = {};
-  for (const [k, geo] of Object.entries({ round: roundCookie(), iced: icedCookie(), heart: heartCookie(), star: starCookie(), sandwich: sandwichCookie() })) {
+  const geometries = themed ? Object.fromEntries([...new Set([...set.basic,...set.choco].map(L=>L.shape))].map(k=>[k,MEAL_GEOMETRIES[k]()])) : {round:roundCookie(),iced:icedCookie(),heart:heartCookie(),star:starCookie(),sandwich:sandwichCookie()};
+  for (const [k, geo] of Object.entries(geometries)) {
     geo.setAttribute('deco', new THREE.InstancedBufferAttribute(new Float32Array(max * 3), 3).setUsage(THREE.DynamicDrawUsage));
     shapes[k] = mk(geo, foodMat);
   }
-  const boneMat = toonMaterial('#f7f0e0'); boneMat.vertexColors = true;
-  const bones = mk(boneGeometry(), boneMat), all = [...Object.values(shapes), bones];
+  const boneMat = themed ? foodMat : toonMaterial('#f7f0e0'); boneMat.vertexColors = true;
+  const boneGeo = themed ? MEAL_GEOMETRIES[set.bone.shape]() : boneGeometry();
+  if(themed) boneGeo.setAttribute('deco',new THREE.InstancedBufferAttribute(new Float32Array(max*3),3).setUsage(THREE.DynamicDrawUsage));
+  const bones = mk(boneGeo,boneMat), all = [...Object.values(shapes),bones];
+  let disposed = false;
+  for(const [k,b] of [...Object.entries(shapes),[themed?set.bone.shape:'bone',bones]]){b.mesh.name='food:'+k;b.line.name='food-outline:'+k;}
   // Variant and size come from the food's random spin angle: stable for its whole life.
-  const look = (type, rot) => { const L = FOOD_LOOKS[type] ?? FOOD_LOOKS.basic; return L[Math.floor(frac(Math.sin(rot * 91.17) * 43758.55) * L.length)]; };
+  const look = (type, rot) => { const L = set[type] ?? set.basic; return L[Math.floor(frac(Math.sin(rot * 91.17) * 43758.55) * L.length)]; };
   return {
     lineMats: [lineN],
+    setId:set.id,
+    dispose(){
+      if(disposed)return;disposed=true;
+      for(const b of all){scene.remove(b.mesh,b.line);b.mesh.geometry.dispose();b.mesh.dispose();b.line.dispose();}
+      for(const m of new Set([foodMat,boneMat,lineN]))m.dispose();
+      // Toon gradientMap belongs to the shared renderer module; never dispose it here.
+    },
     size(type, rot) { const [a, b] = SIZE[type] ?? SIZE.basic; return a + (b - a) * frac(Math.sin(rot * 57.31) * 24634.63); },
     begin() { for (const b of all) b.n = 0; },
     add(type, rot, m) {
-      if (type === 'bone') { bones.mesh.setMatrixAt(bones.n++, m); return; }
+      if (type === 'bone') {
+        if(bones.n>=max)return;
+        bones.mesh.setMatrixAt(bones.n,m);
+        if(themed){bones.mesh.setColorAt(bones.n,set.bone.dough);set.bone.deco.toArray(bones.mesh.geometry.attributes.deco.array,bones.n*3);}
+        bones.n++;return;
+      }
       const L = look(type, rot), b = shapes[L.shape];
+      if(b.n>=max)return;
       b.mesh.setMatrixAt(b.n, m);
       b.mesh.setColorAt(b.n, L.dough);
       L.deco.toArray(b.mesh.geometry.attributes.deco.array, b.n * 3);
@@ -809,6 +1100,6 @@ export function buildFood(scene, max) {
       }
     },
     shown: true,
-    set visible(v) { this.shown = v; for (const b of all) b.mesh.visible = b.line.visible = v; },
+    set visible(v) { this.shown = v; for (const b of all) b.mesh.visible = b.line.visible = v && b.n > 0; },
   };
 }

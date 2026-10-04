@@ -7,7 +7,7 @@ import { CONFIG } from '../src/config.js';
 import { Renderer as Renderer2D, viewSize } from '../src/render.js';
 import { buildDogAssets } from './dogModel.js';
 import { DogVisual } from './dogVisual.js';
-import { buildMeadow, buildFood } from './meadow.js';
+import { buildMeadow, buildFood, applyMapLight, foodSetFor } from './meadow.js';
 import { FX } from './fx.js';
 import { buildHazards } from './hazards.js';
 import { buildSeasonFx } from './seasonFx.js';
@@ -27,8 +27,8 @@ export class World3D {
     renderer.info.autoReset = false;
 
     const scene = this.scene = new THREE.Scene();
-    scene.add(new THREE.HemisphereLight('#fff6e6', '#7a9a50', 2.3));
-    const sun = new THREE.DirectionalLight('#fff0d0', 2.0);
+    this.hemi = new THREE.HemisphereLight('#fff6e6', '#7a9a50', 2.3); scene.add(this.hemi);
+    const sun = this.sun = new THREE.DirectionalLight('#fff0d0', 2.0);
     sun.position.set(-0.5, 1, 0.7);
     scene.add(sun);
 
@@ -57,10 +57,18 @@ export class World3D {
   // Season of the map: the meadow is rebuilt (a fraction of a second), only when it changes.
   setSeason(id) {
     if (this.meadow.season === id) return;
+    applyMapLight(this.hemi,this.sun,id);
     this.meadow.dispose();
     this.meadow = buildMeadow(this.scene, W.w, W.h, id);
+    // Food looks are per map family (cookies / sushi / Italian): rebuilt only when the family changes.
+    if (this.food.setId !== foodSetFor(this.meadow.season).id) {
+      const shown = this.food.shown;
+      this.food.dispose();
+      this.food = buildFood(this.scene, this.maxFood, this.meadow.season);
+      this.food.visible = shown;
+    }
     this.seasonFx.dispose();
-    this.seasonFx = buildSeasonFx(this.scene, id);
+    this.seasonFx = buildSeasonFx(this.scene, id, {sources:this.meadow.weatherSources});
     this.syncView();
   }
 
@@ -124,7 +132,8 @@ export class World3D {
       if (i++ >= this.maxFood) break;
       const k = f.pop <= 0 ? 0 : f.pop >= 0.35 ? 1 : easeOutBack(f.pop / 0.35);
       const id = f.type?.id ?? 'basic', r = (f.type?.r ?? 8) * food.size(id, f.rot) * Math.max(0, k);
-      fp.set(f.x, 0, f.y); fq.setFromAxisAngle(FY, f.rot); fs.set(r, r, r);
+      // Drawn bigger and taller than the pickup radius: readable against the ground, with some volume.
+      fp.set(f.x, 0, f.y); fq.setFromAxisAngle(FY, f.rot); fs.set(r * FOOD_VIEW, r * FOOD_VIEW * FOOD_TALL, r * FOOD_VIEW);
       food.add(id, f.rot, fm.compose(fp, fq, fs));
     }
     food.end();
@@ -154,11 +163,15 @@ export class World3D {
 }
 
 const STUDIO_SEASON = {
+  sakura:['#d4bdce','#889e82','#a7b69b'],
+  kyoto:['#cbc7cf','#aaa5a0','#bbb6af'],
+  italy:['#d9ddbf','#a5ad70','#bdc18b'],
   summer: ['#cfeab4', '#8fcf62', '#9fd873'],
   autumn: ['#f1e0b8', '#c9a24e', '#d8b765'],
   winter: ['#e2edf7', '#f4f8fc', '#e9f0f8'],
   spring: ['#d9f0cc', '#9edb78', '#b1e38c'],
 };
+const FOOD_VIEW = 1.4, FOOD_TALL = 1.2;
 const STUDIO_GAME = { dogs: [], obstacles: [] };
 
 // Fitting room: one dog on a little lawn, its own scene and camera in the same WebGL context.
@@ -169,8 +182,8 @@ export class Studio {
     this.world = world;
     const scene = this.scene = new THREE.Scene();
     scene.background = new THREE.Color('#cfeab4');
-    scene.add(new THREE.HemisphereLight('#fff6e6', '#7a9a50', 2.3));
-    const sun = new THREE.DirectionalLight('#fff0d0', 2.0);
+    this.hemi = new THREE.HemisphereLight('#fff6e6', '#7a9a50', 2.3); scene.add(this.hemi);
+    const sun = this.sun = new THREE.DirectionalLight('#fff0d0', 2.0);
     sun.position.set(-0.5, 1, 0.7);
     scene.add(sun);
     this.lawnCanvas = document.createElement('canvas'); this.lawnCanvas.width = this.lawnCanvas.height = 128;
@@ -195,6 +208,7 @@ export class Studio {
   setSeason(id) {
     if (this.season === id) return;
     this.season = id;
+    applyMapLight(this.hemi,this.sun,id);
     const [bg, c0, c1] = STUDIO_SEASON[id] ?? STUDIO_SEASON.summer;
     this.scene.background = new THREE.Color(bg);
     const g = this.lawnCanvas.getContext('2d'), grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);

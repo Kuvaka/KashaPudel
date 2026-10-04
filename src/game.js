@@ -28,6 +28,12 @@ export function springPuddles() {
   return (PUDDLES = out);
 }
 
+// Shared puddle physics; this only selects an existing deterministic layout.
+const MAP_PUDDLES = {};
+export function mapPuddles(season) {
+  if (!MAP_PUDDLES[season]) MAP_PUDDLES[season] = (PD.maps?.[season] ?? 0) > 0 ? springPuddles().slice(0, PD.maps[season]) : [];
+  return MAP_PUDDLES[season];
+}
 // Obstacles of a season (drifts, leaf piles, mud): a fixed seeded layout too, clear of the
 // start ring, the puddles and each other.
 const OBST = {};
@@ -38,7 +44,7 @@ export function seasonObstacles(season) {
   let s = 7331 + season.length * 101;
   const rnd = () => { s = Math.imul(s ^ (s >>> 15), 2246822519) + 0x9e3779b9 >>> 0; s ^= s >>> 13; return (s >>> 0) / 4294967296; };
   const r2 = (a, b) => a + rnd() * (b - a);
-  const out = [], mid = Math.min(W.w, W.h) * RACE.startRing, wet = season === 'spring' ? springPuddles() : [];
+  const out = [], mid = Math.min(W.w, W.h) * RACE.startRing, wet = mapPuddles(season);
   for (let tries = 0; out.length < c.count && tries < 3000; tries++) {
     const r = r2(c.rMin, c.rMax), x = r2(r + 80, W.w - r - 80), y = r2(r + 80, W.h - r - 80);
     if (Math.hypot(x - W.w / 2, y - W.h / 2) < mid + r + 120) continue;
@@ -144,7 +150,7 @@ export class Game {
       const skill = Math.min(1, Math.max(lv.skillMin, base + lv.skillAdd));
       this.dogs.push(makeDog(names[i % names.length], false, ...spot(i + 1), skill));
     }
-    this.puddles = season === 'spring' ? springPuddles() : [];
+    this.puddles = mapPuddles(season);
     this.obstacles = seasonObstacles(season).map((o) => ({ ...o, gone: 0 })); // gone: seconds until it is back
     for (let i = 0; i < F.count; i++) {
       const f = makeFood(...this.foodSpot());

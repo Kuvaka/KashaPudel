@@ -256,6 +256,7 @@ export class DogVisual {
   setOutfit(worn = {}) {
     for (const slot of Object.keys(this.items)) {
       if (worn[slot]?.id === this.items[slot].id) continue;
+      this.items[slot].hood?.removeFromParent();
       this.items[slot].mesh.removeFromParent(); delete this.items[slot];
     }
     this.palette = null; this.boots = null; this.trail = null;
@@ -274,9 +275,24 @@ export class DogVisual {
         mesh.morphTargetInfluences = this.bodyMesh.morphTargetInfluences;
         this.bodyMesh.add(mesh);
       } else this.mounts[b.mount].add(mesh);
+      if (b.stageMorph) mesh.morphTargetInfluences = this.headMesh.morphTargetInfluences;
       outline(mesh, this.lineMat);
-      this.items[slot] = { id: it.id, mesh, b };
+      let hood = null;
+      if (b.hood) {
+        hood = new THREE.Mesh(b.hood, itemMaterial());
+        hood.morphTargetInfluences = this.headMesh.morphTargetInfluences;
+        this.head.add(hood); outline(hood, this.lineMat);
+      }
+      this.items[slot] = { id: it.id, mesh, b, hood };
     }
+    // A separately equipped hat takes precedence over a costume's optional hood.
+    // The body costume stays equipped; the hood returns when the head slot is cleared.
+    let coverEars = !!this.items.head?.b.coverEars;
+    for (const it of Object.values(this.items)) if (it.hood) {
+      it.hood.visible = !this.items.head;
+      coverEars ||= it.hood.visible;
+    }
+    for (const ear of this.ears) ear.pivot.visible = !coverEars;
     const shoe = worn.paws?.look?.kind === 'shoes' ? buildLook(worn.paws.id, worn.paws.look) : null;
     for (const L of this.legs) {
       L.lower.material = this.boots ?? this.mat; L.paw.material = this.boots ?? this.pawMat;
@@ -461,6 +477,7 @@ export class DogVisual {
       if (!b.place) continue;
       const [p, r, k] = b.place(P);
       mesh.position.set(p[0], p[1], p[2]); mesh.rotation.set(r[0], r[1], r[2]); mesh.scale.setScalar(k);
+      if (b.wave) mesh.morphTargetInfluences[0] = 0.5 + 0.5 * Math.sin(t * 3.2);
       if (b.spin) mesh.rotation.y = t * (8 + 14 * Math.min(1, norm));
       if (b.flap) mesh.scale.z = k * (1 + 0.12 * Math.sin(t * (6 + 10 * Math.min(1, norm))));
     }
