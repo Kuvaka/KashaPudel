@@ -69,7 +69,7 @@ const game = new Game({
     renderer.burst((att.x + vic.x) / 2, (att.y + vic.y) / 2, '#ffffff', 12, 200);
     sfx.boing(vic.isPlayer);
     if (att.isPlayer) sfx.bark(sizeOf(att), 0.4);
-    if (vic.isPlayer) showToast(`💥 ${att.name} толкает тебя!`);
+    if (vic.isPlayer) showToast(`💥 ${att.name} могнул тебя!`);
   },
   onCountdown(n) {
     showCountdown(n ? String(n) : 'Вперёд!');
@@ -269,6 +269,9 @@ function suspendRace() {
   }
 }
 document.addEventListener('visibilitychange', () => { if (document.hidden) suspendRace(); });
+// Any touch (the joystick too) wakes the sound: iOS pauses it after calls, Siri or app switches.
+document.addEventListener('pointerdown', unlock, { capture: true, passive: true });
+document.addEventListener('keydown', unlock, { capture: true, passive: true });
 window.addEventListener('blur', suspendRace);
 
 function onResize() { refreshSafeArea(); renderer.resize(); wardrobe.layout(); }

@@ -1,5 +1,5 @@
 // Tiny synthesized sounds and music, no audio files. iOS Safari only allows audio after a
-// user gesture, so unlock() is called from the Start button.
+// user gesture, so unlock() is called from buttons and from every touch on the page.
 const MUSIC_VOL = 0.55;
 let ac = null, master = null, sfxBus = null, musicBus = null, noiseBuf = null;
 let lastChomp = 0;
@@ -11,9 +11,32 @@ export function setMuted(m) {
   muted = m;
   try { localStorage.setItem('kf_muted', m ? '1' : '0'); } catch {}
   if (master) master.gain.setTargetAtTime(m ? 0 : 1, ac.currentTime, 0.02);
+  if (m) keeper?.pause();
 }
 
+// iOS silences Web Audio while the ringer switch is off, unless a media element is playing:
+// a looping silent <audio> runs alongside (the "unmute" trick). Paused when the game is muted,
+// so the phone's own music can come back.
+let keeper = null;
+function keepAlive() {
+  if (!keeper) {
+    // 0.2 s of silence as a WAV: 44-byte header + 1600 unsigned 8-bit samples at 8 kHz.
+    const n = 1600, b = new Uint8Array(44 + n), v = new DataView(b.buffer);
+    const str = (o, t) => { for (let i = 0; i < t.length; i++) b[o + i] = t.charCodeAt(i); };
+    str(0, 'RIFF'); v.setUint32(4, 36 + n, true); str(8, 'WAVEfmt ');
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, 8000, true); v.setUint32(28, 8000, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true);
+    str(36, 'data'); v.setUint32(40, n, true); b.fill(128, 44);
+    keeper = new Audio(URL.createObjectURL(new Blob([b], { type: 'audio/wav' })));
+    keeper.loop = true; keeper.setAttribute('playsinline', '');
+  }
+  if (keeper.paused) keeper.play().catch(() => {});
+}
+
+// Called from every user gesture: creates the context the first time, wakes it after iOS
+// interruptions (calls, Siri, switching apps) and starts the keeper.
 export function unlock() {
+  if (ac && ac.state === 'closed') ac = null;
   if (!ac) {
     const Ctx = window.AudioContext || window.webkitAudioContext;
     if (!Ctx) return;
@@ -29,7 +52,8 @@ export function unlock() {
     const ch = noiseBuf.getChannelData(0);
     for (let i = 0; i < ch.length; i++) ch[i] = Math.random() * 2 - 1;
   }
-  if (ac.state === 'suspended' || ac.state === 'interrupted') ac.resume().catch(() => {});
+  if (ac.state !== 'running') ac.resume().catch(() => {});
+  if (!muted) keepAlive();
 }
 
 const live = () => !muted && ac && ac.state === 'running';

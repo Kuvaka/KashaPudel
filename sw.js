@@ -1,6 +1,6 @@
 // Network-first cache: the game works offline after the first visit, and updates
 // show up on the next online launch.
-const CACHE = 'maltipoo-v10';
+const CACHE = 'maltipoo-v11';
 const CORE = [
   './', 'index.html', 'style.css', 'manifest.webmanifest',
   'src/main.js', 'src/config.js', 'src/game.js', 'src/art.js', 'src/render.js', 'src/input.js', 'src/audio.js',
