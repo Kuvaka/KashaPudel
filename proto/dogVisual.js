@@ -170,6 +170,7 @@ export class DogVisual {
     this.assets = assets;
     const M = sharedMaterials(assets);
     this.mat = coatMaterial(COATS[0], LIGHTS[0]);
+    this.bodyMat = coatMaterial(COATS[0], LIGHTS[0]); // same coat; only the body gets marble spots
     this.earMat = coatMaterial(EARS[0]);
     this.pawMat = coatMaterial(COATS[0]);
     this.lineMat = outlineMaterial();
@@ -195,7 +196,7 @@ export class DogVisual {
     root.add(this.immuneRing);
 
     this.body = new THREE.Group(); pose.add(this.body);
-    this.bodyMesh = new THREE.Mesh(assets.body, this.mat); this.body.add(this.bodyMesh);
+    this.bodyMesh = new THREE.Mesh(assets.body, this.bodyMat); this.body.add(this.bodyMesh);
     this.tail = new THREE.Group(); this.body.add(this.tail);
     this.tailMesh = new THREE.Mesh(assets.tail, this.mat); this.tail.add(this.tailMesh);
     // Wardrobe mounts (outfits.js): neck ring on the body, tail tip, top of the back.
@@ -264,6 +265,7 @@ export class DogVisual {
       if (k === 'coat') { this.palette = coatPalette(it.look); continue; }
       if (k === 'boots') { this.boots = bootMaterial(it.look.color); continue; }
       if (k === 'trail') { this.trail = it.look.fx; continue; }
+      if (k === 'shoes') continue; // one per foot, below
       if (this.items[slot]) continue;
       const b = buildLook(it.id, it.look);
       if (!b) continue; // unknown look: owned, just not drawn
@@ -275,7 +277,13 @@ export class DogVisual {
       outline(mesh, this.lineMat);
       this.items[slot] = { id: it.id, mesh, b };
     }
-    for (const L of this.legs) { L.lower.material = this.boots ?? this.mat; L.paw.material = this.boots ?? this.pawMat; }
+    const shoe = worn.paws?.look?.kind === 'shoes' ? buildLook(worn.paws.id, worn.paws.look) : null;
+    for (const L of this.legs) {
+      L.lower.material = this.boots ?? this.mat; L.paw.material = this.boots ?? this.pawMat;
+      if (L.shoe && L.shoe.geometry !== shoe?.geo) { L.shoe.removeFromParent(); L.shoe = null; }
+      if (shoe && !L.shoe) { L.shoe = new THREE.Mesh(shoe.geo, itemMaterial()); outline(L.shoe, this.lineMat); this.pose.add(L.shoe); }
+      L.paw.visible = !L.shoe; // shoes replace the fluffy mitt
+    }
   }
 
   shoulderOf(a0, a1, w) { return a0.shoulder.map((v, i) => lerp(v, a1.shoulder[i], w)); }
@@ -283,7 +291,7 @@ export class DogVisual {
 
   dispose() {
     this.root.removeFromParent();
-    for (const m of [this.mat, this.earMat, this.pawMat, this.lineMat, this.lineMatR, this.mouth.material]) m.dispose();
+    for (const m of [this.mat, this.bodyMat, this.earMat, this.pawMat, this.lineMat, this.lineMatR, this.mouth.material]) m.dispose();
     this.crown.traverse((o) => o.geometry?.dispose()); // each dog builds its own crown
   }
 
@@ -309,6 +317,10 @@ export class DogVisual {
     this.mat.userData.patch.value.set(C0.light).lerp(this.color2.set(C1.light), cu);
     this.earMat.color.set(C0.ear).lerp(this.color2.set(C1.ear), cu);
     this.pawMat.color.copy(this.mat.color).lerp(this.mat.userData.patch.value, SOCKS[cu < 0.5 ? st : next] ? 1 : 0.6);
+    this.bodyMat.color.copy(this.mat.color); this.bodyMat.userData.patch.value.copy(this.mat.userData.patch.value);
+    const sp = this.bodyMat.userData.spots, ps = pal?.spots;
+    sp.on.value = ps ? 1 : 0;
+    if (ps) { sp.a.value.copy(ps[0]); sp.b.value.copy(ps[1]); }
     // Constant-looking line: ~3% of the dog's on-screen size, in device pixels.
     const V = DogVisual.view;
     for (const lm of [this.lineMat, this.lineMatR]) {
@@ -630,6 +642,7 @@ export class DogVisual {
       placeSegment(L.lower, knee, footLocal, P.leg * 1.19);
       L.knee.position.copy(knee); L.knee.scale.setScalar(P.leg * 1.22); // covers the joint: no seam
       L.paw.position.copy(footLocal); L.paw.scale.set(pawR * 1.42, pawR, pawR * 1.19); // wide mitts, same contact height
+      if (L.shoe) { L.shoe.position.copy(footLocal); L.shoe.scale.copy(L.paw.scale); }
     }
 
     // --- Ground decals and effects -------------------------------------------------------------

@@ -61,19 +61,37 @@ float lockInk(vec3 dir, float set, float allow) {
 `;
 
 // Toon coat. Vertex colour = crease shade; attribute `patch` (0..1) blends towards uPatch.
+// Marble coat: 4 dark and 1 caramel patch on the body, by direction from its middle.
+const SPOT_GLSL = `
+uniform float uSpotOn;
+uniform vec3 uSpotA, uSpotB;
+float spot(vec3 d, vec3 c, float r, float w) { return smoothstep(-0.02, 0.02, dot(d, normalize(c)) - cos(r) + w); }
+vec3 spots(vec3 col, vec3 shade, float k) {
+  vec3 d = normalize(vBase);
+  float w = 0.05 * sin(dot(d, vec3(13.0, 9.0, 11.0))) + 0.04 * sin(dot(d, vec3(-7.0, 17.0, 5.0)));
+  float a = max(max(spot(d, vec3(-0.62, 0.45, 0.64), 0.5, w), spot(d, vec3(-0.45, -0.25, 0.86), 0.4, w)),
+                max(spot(d, vec3(0.2, -0.35, -0.9), 0.45, w), spot(d, vec3(-0.3, 0.9, -0.35), 0.42, w)));
+  float b = spot(d, vec3(0.4, 0.3, 0.86), 0.42, w) * (1.0 - a);
+  col = mix(col, uSpotA * shade, a * k);
+  return mix(col, uSpotB * shade, b * k);
+}
+`;
+
 export function coatMaterial(color, patchColor = color) {
   const m = new THREE.MeshToonMaterial({ color, gradientMap: gradientMap(), vertexColors: true });
   m.userData.patch = { value: new THREE.Color(patchColor) };
+  m.userData.spots = { on: { value: 0 }, a: { value: new THREE.Color() }, b: { value: new THREE.Color() } };
   m.onBeforeCompile = (sh) => {
     sh.uniforms.uPatch = m.userData.patch;
+    sh.uniforms.uSpotOn = m.userData.spots.on; sh.uniforms.uSpotA = m.userData.spots.a; sh.uniforms.uSpotB = m.userData.spots.b;
     Object.assign(sh.uniforms, LOCK_UNIFORMS);
     sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float furPatch;\nattribute vec3 outlineDir;\nattribute vec2 lockInfo;\nvarying float vPatch;\nvarying vec3 vDir;\nvarying vec2 vLock;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvPatch = furPatch;\nvDir = outlineDir;\nvLock = lockInfo;');
+      .replace('#include <common>', '#include <common>\nattribute float furPatch;\nattribute vec3 outlineDir;\nattribute vec2 lockInfo;\nvarying float vPatch;\nvarying vec3 vDir;\nvarying vec2 vLock;\nvarying vec3 vBase;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvPatch = furPatch;\nvDir = outlineDir;\nvLock = lockInfo;\nvBase = position;');
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform vec3 uPatch;\nvarying float vPatch;\nvarying vec3 vDir;\nvarying vec2 vLock;\n' + LOCK_GLSL)
+      .replace('#include <common>', '#include <common>\nuniform vec3 uPatch;\nvarying float vPatch;\nvarying vec3 vDir;\nvarying vec2 vLock;\nvarying vec3 vBase;\n' + SPOT_GLSL + LOCK_GLSL)
       .replace('#include <color_fragment>',
-        '#include <color_fragment>\ndiffuseColor.rgb = mix(diffuseColor.rgb, uPatch * vColor.rgb, vPatch);')
+        '#include <color_fragment>\ndiffuseColor.rgb = mix(diffuseColor.rgb, uPatch * vColor.rgb, vPatch);\nif (uSpotOn > 0.5) diffuseColor.rgb = spots(diffuseColor.rgb, vColor.rgb, 1.0 - vPatch);')
       .replace('#include <opaque_fragment>',
         '#include <opaque_fragment>\ngl_FragColor.rgb = mix(gl_FragColor.rgb, uInkColor, 0.7 * lockInk(vDir, vLock.x, vLock.y));');
   };

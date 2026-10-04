@@ -52,6 +52,8 @@ const puffTex = () => canvasTex(64, 64, (x) => {
 // Cells: 0 crumb, 1 heart, 2 petal, 3 bubble, 4 star, 5 soft dot (tinted: rainbow), 6 leaf and
 // 7 snowflake (both drawn light, tinted per particle; seasons use them too).
 export const TRAIL_CELL = { crumbs: 0, hearts: 1, petals: 2, bubbles: 3, stars: 4, rainbow: 5, leaves: 6, snow: 7 };
+const LEAFY = ['#f08a3c', '#e8603a', '#f5b942'].map((c) => new THREE.Color(c));
+const SNOWY = ['#ffffff', '#dceaff'].map((c) => new THREE.Color(c));
 const RAINBOW = ['#ff8fa3', '#ffc078', '#ffe066', '#9be38b', '#8cc8ff', '#c5a3ff'].map((c) => new THREE.Color(c));
 let atlas = null;
 export const trailTex = () => atlas ??= canvasTex(256, 128, (x) => {
@@ -199,12 +201,12 @@ export class FX {
         T.p.y = rb ? R * (1.25 - j * 0.13) : R * (0.4 + Math.random() * 0.9);
         T.v.copy(dir).multiplyScalar(-R * (rb ? 0.2 : 0.8)).addScaledVector(tx, rb ? 0 : jit * 0.8);
         T.v.y = rb ? 0 : R * (kind === 'bubbles' ? 0.9 : kind === 'crumbs' ? 1.2 : 0.5);
-        T.g = kind === 'crumbs' ? R * 5 : kind === 'petals' ? R * 0.6 : 0;
+        T.g = kind === 'crumbs' ? R * 5 : kind === 'petals' || kind === 'leaves' ? R * 0.6 : kind === 'snow' ? R * 0.3 : 0;
         // Short-lived, and crumbs vanish before they land: nothing on the grass may look like food.
         T.t = 0; T.life = rb ? 0.5 : kind === 'crumbs' ? 0.35 + Math.random() * 0.1 : 0.5 + Math.random() * 0.3;
         T.size = R * (rb ? 0.3 : kind === 'crumbs' ? 0.2 + Math.random() * 0.08 : 0.3 + Math.random() * 0.15);
         T.cell = cell; T.rot = Math.random() * 6.28; T.vr = rb || kind === 'bubbles' ? 0 : (Math.random() - 0.5) * 8;
-        T.c.copy(rb ? RAINBOW[j] : WHITE);
+        T.c.copy(rb ? RAINBOW[j] : kind === 'leaves' ? LEAFY[i % 3] : kind === 'snow' ? SNOWY[i % 2] : WHITE);
       }
     }
   }
