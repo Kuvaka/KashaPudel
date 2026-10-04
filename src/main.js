@@ -10,13 +10,13 @@ const canvas = $('game');
 const STEP = 1 / CONFIG.simHz;
 const MEDALS = ['🥇', '🥈', '🥉'];
 
-// ?3d: the 3D renderer (proto/render3d.js) behind the same interface, for testing in the game.
-// If 3D can't start (old Safari, no WebGL), say so and fall back to the 2D game.
+// The 3D renderer (proto/render3d.js) is the default, behind the same interface as the 2D one.
+// ?2d forces the 2D game; if 3D can't start (old Safari, no WebGL) the 2D game takes over quietly.
 async function make3d() {
   try { return new (await import('../proto/render3d.js')).Renderer3D(canvas); }
-  catch (e) { console.error(e); alert('3D не запустилось, открываю обычную версию.'); return null; }
+  catch (e) { console.error(e); return null; }
 }
-const renderer = (new URLSearchParams(location.search).has('3d') && await make3d()) || new Renderer(canvas, await loadArt());
+const renderer = (!new URLSearchParams(location.search).has('2d') && await make3d()) || new Renderer(canvas, await loadArt());
 const input = new Input(canvas, $('dash'));
 let screen = 'start';
 let paused = false;
