@@ -9,10 +9,11 @@
 // Changes are async: the UI confirms a purchase only after it was saved.
 const KEY = 'kf_wardrobe', PREV = 'kf_wardrobe_prev', UNDO = 'kf_wardrobe_undo', VERSION = 1;
 export const SLOTS = ['head', 'face', 'neck', 'body', 'back', 'tail', 'paws', 'coat', 'trail'];
+export const LOOKS = 3; // saved outfits
 
 const fresh = (gift) => ({
   v: VERSION, app: 'kashafish', revision: 0, cookies: gift, total: gift,
-  owned: [], worn: {}, grants: { starter: true }, run: null,
+  owned: [], worn: {}, looks: Array(LOOKS).fill(null), grants: { starter: true }, run: null,
 });
 
 function valid(p) {
@@ -26,9 +27,19 @@ function normalize(p) {
   p.owned = [...new Set(p.owned.filter((x) => typeof x === 'string'))];
   p.worn = p.worn && typeof p.worn === 'object' ? p.worn : {};
   for (const s of Object.keys(p.worn)) if (!p.owned.includes(p.worn[s])) delete p.worn[s];
+  // Saved outfits: { slot: id } or null. Unknown ids stay (a later version may draw them).
+  const looks = Array.isArray(p.looks) ? p.looks : [];
+  p.looks = Array.from({ length: Math.max(LOOKS, looks.length) }, (_, i) => cleanLook(looks[i]));
   p.grants = p.grants || {};
   p.revision = p.revision | 0;
   return p;
+}
+
+function cleanLook(l) {
+  if (!l || typeof l !== 'object') return null;
+  const out = {};
+  for (const [s, id] of Object.entries(l)) if (typeof id === 'string') out[s] = id;
+  return Object.keys(out).length ? out : null;
 }
 
 // Short checksum for export strings: catches a truncated copy-paste, not tampering.
@@ -171,6 +182,23 @@ export class Wallet {
     });
   }
 
+  // --- Saved outfits ------------------------------------------------------------------------
+  look(i) { return this.p.looks[i] || null; }
+
+  // Remember what is worn now in place i (an empty outfit clears it).
+  saveLook(i) {
+    return this.change((p) => { p.looks[i] = cleanLook(p.worn); });
+  }
+
+  // Wear outfit i: everything it has that is owned; slots it doesn't use are taken off.
+  wearLook(i) {
+    return this.change((p) => {
+      const l = p.looks[i]; if (!l) return false;
+      p.worn = {};
+      for (const [s, id] of Object.entries(l)) if (p.owned.includes(id)) p.worn[s] = id;
+    });
+  }
+
   // A dream item to save up for (free, reserves nothing): shown with what's left to collect.
   get wish() { return this.p.wish || null; }
   setWish(id) { return this.change((p) => { if (id) p.wish = id; else delete p.wish; }); }
@@ -185,8 +213,8 @@ export class Wallet {
 
   // --- Backup: "KF1.<base64 json>.<checksum>" ----------------------------------------------
   exportCode() {
-    const { cookies, total, owned, worn } = this.p;
-    const body = b64(JSON.stringify({ v: VERSION, app: 'kashafish', at: new Date().toISOString(), cookies, total, owned, worn }));
+    const { cookies, total, owned, worn, looks } = this.p;
+    const body = b64(JSON.stringify({ v: VERSION, app: 'kashafish', at: new Date().toISOString(), cookies, total, owned, worn, looks }));
     return `KF1.${body}.${sum(body)}`;
   }
 
@@ -203,7 +231,7 @@ export class Wallet {
     } catch { return 'Код повреждён: скопируй его целиком.'; }
   }
 
-  // Merge: union of owned items, the larger balance; nothing current is lost.
+  // Merge: union of owned items, the larger balance, empty outfit places filled; nothing current is lost.
   applyCode(q) {
     try { localStorage.setItem(UNDO, localStorage.getItem(KEY) ?? ''); } catch {} // the save as it was
     if (this.readOnly) { this.readOnly = false; this.state = 'corrupt'; this.p = fresh(0); } // replace the unreadable save
@@ -212,6 +240,7 @@ export class Wallet {
       p.cookies = Math.max(p.cookies, Math.floor(q.cookies));
       p.total = Math.max(p.total, q.total | 0, p.cookies);
       for (const [s, id] of Object.entries(q.worn || {})) if (!p.worn[s] && p.owned.includes(id)) p.worn[s] = id;
+      if (Array.isArray(q.looks)) q.looks.forEach((l, i) => { if (i < p.looks.length && !p.looks[i]) p.looks[i] = cleanLook(l); });
     });
   }
 }

@@ -304,6 +304,9 @@ button.link {
 #wr-info b { display: block; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #wr-act { width: auto; flex: 0 0 auto; margin: 0; padding: 10px 14px; }
 #wr-act.buy { background: linear-gradient(#b6f09a, var(--green)); }
+#wr-save { flex: 0 0 auto; padding: 8px 12px; font-size: 18px; }
+.card.look .ico { min-height: 33px; }
+.card.look .ico.many { font-size: 20px; line-height: 1.25; letter-spacing: -2px; }
 .card.wish::after { content: '⭐'; position: absolute; top: 2px; right: 4px; font-size: 14px; }
 #wr-tabs button.has::after { content: ' •'; color: #2f9e2a; }
 #wr-top .bank { pointer-events: none; }

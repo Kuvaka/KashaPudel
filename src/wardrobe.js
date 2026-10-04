@@ -2,10 +2,17 @@
 // take off. Purchases go through the Wallet; the fitting room is the renderer's Studio (3D only).
 import { CONFIG } from './config.js';
 import { sfx } from './audio.js';
+import { LOOKS } from './wallet.js';
 
 const W = CONFIG.wardrobe;
 const BY_ID = Object.fromEntries(W.items.map((i) => [i.id, i]));
 const TIER = { common: 'Обычная', rare: 'Редкая', dream: 'Мечта' };
+const LOOK_TAB = { slot: 'looks', ico: '👑', name: 'Образы' }; // saved outfits, first in the row
+const TABS = [LOOK_TAB, ...W.tabs];
+const sameLook = (a, b) => {
+  const ka = Object.keys(a || {}), kb = Object.keys(b || {});
+  return ka.length === kb.length && ka.every((k) => a[k] === b[k]);
+};
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -39,17 +46,20 @@ export class Wardrobe {
     this.stage = 5;
 
     const tabs = $('wr-tabs');
-    tabs.innerHTML = W.tabs.map((t) => `<button data-slot="${t.slot}">${t.ico} ${esc(t.name)}</button>`).join('');
+    tabs.innerHTML = TABS.map((t) => `<button data-slot="${t.slot}">${t.ico} ${esc(t.name)}</button>`).join('');
     tabs.addEventListener('click', (e) => {
       const b = e.target.closest('button'); if (!b) return;
+      if (this.tab === 'looks' || b.dataset.slot === 'looks') this.tryOn = { ...this.wallet.p.worn }; // drop a previewed outfit
       this.tab = b.dataset.slot; this.sel = null; this.render();
       b.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'smooth' });
       $('wr-grid').scrollTop = 0;
     });
     $('wr-grid').addEventListener('click', (e) => {
-      const c = e.target.closest('.card'); if (c) this.pick(c.dataset.id);
+      const c = e.target.closest('.card'); if (!c) return;
+      if (c.dataset.look !== undefined) this.pickLook(+c.dataset.look); else this.pick(c.dataset.id);
     });
     $('wr-act').addEventListener('click', () => this.act());
+    $('wr-save').addEventListener('click', () => this.saveLook());
     $('wr-back').addEventListener('click', () => this.close());
     for (const b of this.el.querySelectorAll('[data-stage]')) {
       b.addEventListener('click', () => { this.stage = +b.dataset.stage; this.studio?.setStage(this.stage); this.render(); });
@@ -113,7 +123,33 @@ export class Wardrobe {
     this.render();
   }
 
+  // Saved outfits: tapping one shows it on the dog; an empty one shows what would be saved.
+  pickLook(i) {
+    const l = this.wallet.look(i);
+    this.sel = 'look:' + i;
+    this.tryOn = {};
+    for (const [s, id] of Object.entries(l || this.wallet.p.worn)) if (this.wallet.owns(id)) this.tryOn[s] = id;
+    this.render();
+  }
+
+  get lookSel() { return this.sel?.startsWith('look:') ? +this.sel.slice(5) : null; }
+
+  async saveLook() {
+    const i = this.lookSel; if (i === null) return;
+    if (await this.wallet.saveLook(i)) {
+      this.tryOn = { ...this.wallet.p.worn };
+      sfx.levelUp(0.2); this.flash(`Образ ${i + 1} запомнен`);
+    } else this.flash('Не получилось сохранить. Попробуй ещё раз');
+    this.render();
+  }
+
   async act() {
+    const li = this.lookSel;
+    if (li !== null) {
+      if (!this.wallet.look(li)) return this.saveLook();
+      if (await this.wallet.wearLook(li)) { this.tryOn = { ...this.wallet.p.worn }; this.flash(`Надет образ ${li + 1}`); }
+      return this.render();
+    }
     const it = BY_ID[this.sel]; if (!it) return;
     const w = this.wallet, btn = $('wr-act');
     btn.disabled = true;
@@ -140,10 +176,13 @@ export class Wardrobe {
     for (const b of $('wr-tabs').children) {
       const slot = b.dataset.slot, items = W.items.filter((i) => i.slot === slot);
       b.classList.toggle('on', slot === this.tab);
-      b.classList.toggle('has', items.some((i) => w.owns(i.id)));
+      b.classList.toggle('has', slot === 'looks' ? w.p.looks.some(Boolean) : items.some((i) => w.owns(i.id)));
     }
     for (const b of this.el.querySelectorAll('[data-stage]')) b.classList.toggle('on', +b.dataset.stage === this.stage);
     $('wr-run').classList.toggle('on', !!this.studio?.run);
+
+    $('wr-save').classList.add('hidden');
+    if (this.tab === 'looks') return this.renderLooks();
 
     $('wr-grid').innerHTML = W.items.filter((i) => i.slot === this.tab).map((i) => {
       const own = w.owns(i.id), cls = ['card', i.tier,
@@ -158,7 +197,7 @@ export class Wardrobe {
     const keep = performance.now() < (this.flashUntil ?? 0); // a 'bought!' message stays a moment
     act.classList.toggle('hidden', !it);
     if (!it) {
-      name.textContent = W.tabs.find((t) => t.slot === this.tab).name;
+      name.textContent = TABS.find((t) => t.slot === this.tab).name;
       if (!keep) note.textContent = w.readOnly ? 'Сохранение не читается: восстанови копилку из кода ниже' : 'Нажми на вещь, чтобы примерить. Примерка бесплатная';
     } else {
       name.textContent = `${it.ico} ${it.name}`;
@@ -171,6 +210,38 @@ export class Wardrobe {
       act.textContent = own ? (w.worn(it.slot) === it.id ? 'Снять' : 'Надеть')
         : lack > 0 ? (w.wish === it.id ? 'Не копить' : '⭐ Хочу') : `Купить за ${it.price} 🍪`;
       act.classList.toggle('buy', !own && lack <= 0);
+    }
+    if (this.studio) this.studio.dog.outfit = outfitOf(this.tryOn);
+  }
+
+  renderLooks() {
+    const w = this.wallet, worn = w.p.worn, li = this.lookSel;
+    $('wr-grid').innerHTML = Array.from({ length: LOOKS }, (_, i) => {
+      const l = w.look(i), on = !!l && sameLook(l, worn);
+      const icons = l ? Object.values(l).map((id) => BY_ID[id]?.ico).filter(Boolean) : [];
+      const cls = ['card', 'look', on ? 'worn' : '', li === i ? 'sel' : ''].join(' ');
+      const ico = l ? `<div class="ico${icons.length > 2 ? ' many' : ''}">${icons.slice(0, 6).join('')}</div>` : '<div class="ico">➕</div>';
+      return `<div class="${cls}" data-look="${i}">${ico}<span class="nm">Образ ${i + 1}</span><span class="pr">${on ? 'надето' : l ? 'вещей: ' + Object.keys(l).length : 'пусто'}</span></div>`;
+    }).join('');
+
+    const act = $('wr-act'), save = $('wr-save'), name = $('wr-name'), note = $('wr-note');
+    const keep = performance.now() < (this.flashUntil ?? 0), empty = !Object.keys(worn).length;
+    act.classList.remove('buy');
+    if (li === null) {
+      name.textContent = 'Образы';
+      act.classList.add('hidden');
+      if (!keep) note.textContent = 'Запомни до трёх нарядов и переодевайся в одно касание';
+    } else {
+      const l = w.look(li), on = !!l && sameLook(l, worn);
+      name.textContent = `👑 Образ ${li + 1}`;
+      act.classList.toggle('hidden', on || (!l && empty));
+      act.textContent = l ? 'Надеть' : '💾 Запомнить';
+      save.classList.toggle('hidden', !l || on || empty);
+      if (!keep) {
+        note.textContent = on ? 'Надето сейчас'
+          : l ? '💾 запомнит сюда то, что надето сейчас'
+          : empty ? 'Сначала надень вещи, потом запомни их здесь' : 'Запомнит то, что надето сейчас';
+      }
     }
     if (this.studio) this.studio.dog.outfit = outfitOf(this.tryOn);
   }
