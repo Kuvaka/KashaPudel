@@ -44,6 +44,7 @@ export class Wardrobe {
     this.sel = null;
     this.tryOn = {};
     this.stage = 5;
+    this.filter = 'all'; // 'all' | 'owned' | 'afford' (not bought yet, enough cookies)
 
     const tabs = $('wr-tabs');
     tabs.innerHTML = TABS.map((t) => `<button data-slot="${t.slot}">${t.ico} ${esc(t.name)}</button>`).join('');
@@ -57,6 +58,10 @@ export class Wardrobe {
     $('wr-grid').addEventListener('click', (e) => {
       const c = e.target.closest('.card'); if (!c) return;
       if (c.dataset.look !== undefined) this.pickLook(+c.dataset.look); else this.pick(c.dataset.id);
+    });
+    $('wr-filter').addEventListener('click', (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      this.filter = b.dataset.f; this.render(); $('wr-grid').scrollTop = 0;
     });
     $('wr-act').addEventListener('click', () => this.act());
     $('wr-save').addEventListener('click', () => this.saveLook());
@@ -182,15 +187,26 @@ export class Wardrobe {
     $('wr-run').classList.toggle('on', !!this.studio?.run);
 
     $('wr-save').classList.add('hidden');
+    $('wr-filter').classList.toggle('hidden', this.tab === 'looks');
     if (this.tab === 'looks') return this.renderLooks();
 
-    $('wr-grid').innerHTML = W.items.filter((i) => i.slot === this.tab).map((i) => {
+    const inTab = W.items.filter((i) => i.slot === this.tab);
+    const FILTERS = { all: () => true, owned: (i) => w.owns(i.id), afford: (i) => !w.owns(i.id) && cookies >= i.price };
+    for (const b of $('wr-filter').children) {
+      const n = inTab.filter(FILTERS[b.dataset.f]).length;
+      b.classList.toggle('on', b.dataset.f === this.filter);
+      b.innerHTML = `${{ all: 'Все', owned: 'Куплено', afford: 'Доступно' }[b.dataset.f]} <i>${n}</i>`;
+    }
+    const shown = inTab.filter(FILTERS[this.filter]);
+    const none = this.filter === 'owned' ? 'Тут пока ничего не куплено'
+      : inTab.every((i) => w.owns(i.id)) ? 'Здесь уже всё куплено 🎉' : 'Пока не хватает печенья. Беги за 🍪!';
+    $('wr-grid').innerHTML = shown.length ? shown.map((i) => {
       const own = w.owns(i.id), cls = ['card', i.tier,
         own ? 'owned' : cookies < i.price ? 'poor' : '',
         w.worn(i.slot) === i.id ? 'worn' : '', this.sel === i.id ? 'sel' : '', w.wish === i.id ? 'wish' : ''].join(' ');
       const pr = own ? (w.worn(i.slot) === i.id ? 'надето' : 'есть ✓') : `🍪 ${i.price}`;
       return `<div class="${cls}" data-id="${i.id}"><div class="ico">${i.ico}</div><span class="nm">${esc(i.name)}</span><span class="pr">${pr}</span></div>`;
-    }).join('');
+    }).join('') : `<p class="wr-empty">${none}</p>`;
 
     // Bottom bar: the selected item and what can be done with it.
     const it = BY_ID[this.sel], act = $('wr-act'), name = $('wr-name'), note = $('wr-note');

@@ -280,6 +280,14 @@ button.link {
   background: #fff; font: 800 14px system-ui, sans-serif; color: var(--ink); touch-action: manipulation;
 }
 #wr-tabs button.on { background: var(--gold); }
+#wr-filter { display: flex; gap: 4px; padding-bottom: 6px; }
+#wr-filter button {
+  flex: 1; padding: 3px 4px; border-radius: 10px; border: 2px solid var(--ink); background: rgba(255, 255, 255, 0.6);
+  font: 700 12px system-ui, sans-serif; color: var(--ink); touch-action: manipulation; white-space: nowrap;
+}
+#wr-filter button.on { background: #fff; box-shadow: 0 0 0 2px #e64980 inset; }
+#wr-filter button i { font-style: normal; opacity: 0.6; }
+.wr-empty { grid-column: 1 / -1; text-align: center; font-weight: 700; padding: 18px 8px; opacity: 0.75; }
 #wr-grid {
   flex: 1; overflow-y: auto; touch-action: pan-y; -webkit-overflow-scrolling: touch;
   display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; align-content: start;
