@@ -9,6 +9,7 @@ export const CONFIG = {
   world: { w: 2000, h: 2000 },
   // Dark map colours keep white rivals and the yellow player visible on the minimap.
   minimap: {
+    whale:'#3e6b64',yorknew:'#4e5870',greed:'#506b62',
     summer: 'rgba(30,70,25,0.55)', autumn: '#67513b', winter: '#536779',
     spring: '#466c42', sakura: '#685364', kyoto: '#585b65', italy: '#6f6242',
   },
@@ -68,6 +69,7 @@ export const CONFIG = {
   // leaf pile at speed knocks the dog over (the drift / pile scatters and comes back after
   // regrowSec); stepping into summer mud gets the paws stuck. Nothing is lost, just time.
   obstacles: {
+    greed:{kind:'leaves',count:12,rMin:29,rMax:38,hit:.7},
     stunSec: 3,
     immuneSec: 4,         // after getting up: no second bump right away
     minSpeed: 140,        // drifts and leaves only stop a dog that runs into them
@@ -112,7 +114,7 @@ export const CONFIG = {
 
   // Spring puddles: low grip (the dog slides), and a dash into one shoots the dog ahead.
   puddles: {
-    maps: { spring:12, kyoto:10 },
+    maps: { spring:12, kyoto:10, whale:8, yorknew:10 },
     count: 12, rMin: 70, rMax: 120,
     grip: 1.2,            // instead of dog.grip (3.2) while on the water: a drift, still steerable
     accelMul: 0.85,       // paws slip a little: speeding up and braking are weaker
@@ -180,6 +182,37 @@ export const CONFIG = {
       { slot: 'world', ico: '🗺', name: 'Мир' },
     ],
     items: [
+      // HxH expedition collection: additive stable IDs.
+      {"id":"hx_cap","slot":"head","name":"Кепка рыбака","price":900,"tier":"rare","ico":"🧢","look":{"kind":"hx_cap"}},
+      {"id":"hx_hat","slot":"head","name":"Шляпа путешественника","price":1100,"tier":"rare","ico":"🪶","look":{"kind":"hx_hat"}},
+      {"id":"hx_band","slot":"head","name":"Повязка экспедиции","price":800,"tier":"rare","ico":"🟢","look":{"kind":"hx_band"}},
+      {"id":"hx_hibiscus","slot":"head","name":"Гибискус Китового острова","price":1000,"tier":"rare","ico":"🌺","look":{"kind":"hx_hibiscus"}},
+      {"id":"hx_helmet","slot":"head","name":"Король муравьёв","price":1600,"tier":"epic","ico":"🪲","look":{"kind":"hx_helmet"}},
+      {"id":"hx_silver","slot":"head","name":"Серебряные вихры","price":1200,"tier":"rare","ico":"🌬️","look":{"kind":"hx_silver"}},
+      {"id":"hx_hair","slot":"head","name":"Длинные волосы героя","price":2400,"tier":"dream","ico":"🌪️","look":{"kind":"hx_hair"}},
+      {"id":"hx_license","slot":"neck","name":"Лицензия охотника","price":800,"tier":"rare","ico":"🪪","look":{"kind":"hx_license"}},
+      {"id":"hx_scarlet","slot":"neck","name":"Алая капля","price":1000,"tier":"rare","ico":"♦️","look":{"kind":"hx_scarlet"}},
+      {"id":"hx_bow","slot":"neck","name":"Фиолетовый бант","price":900,"tier":"rare","ico":"🎀","look":{"kind":"hx_bow"}},
+      {"id":"hx_glasses","slot":"face","name":"Очки студента-медика","price":900,"tier":"rare","ico":"👓","look":{"kind":"hx_glasses"}},
+      {"id":"hx_diamond","slot":"face","name":"Карточный ромб","price":800,"tier":"rare","ico":"🔶","look":{"kind":"hx_diamond"}},
+      {"id":"hx_jacket","slot":"body","name":"Зелёная куртка","price":1100,"tier":"rare","ico":"🧥","look":{"kind":"garment","cut":"hx_jacket","color":"#319457","trim":"#1b3030"}},
+      {"id":"hx_shirt","slot":"body","name":"Голубой высокий ворот","price":900,"tier":"rare","ico":"👕","look":{"kind":"garment","cut":"hx_shirt","color":"#f3f9f8","trim":"#78c3e8"}},
+      {"id":"hx_suit","slot":"body","name":"Костюм большого города","price":1400,"tier":"rare","ico":"👔","look":{"kind":"garment","cut":"hx_suit","color":"#2864a2","trim":"#eff3e4"}},
+      {"id":"hx_cloak","slot":"body","name":"Плащ солнечного клана","price":1600,"tier":"epic","ico":"☀️","look":{"kind":"garment","cut":"hx_cloak","color":"#f3ca43","trim":"#34558d"}},
+      {"id":"hx_pack","slot":"back","name":"Рюкзак рыбака с удочкой","price":2800,"tier":"dream","ico":"🎒","look":{"kind":"hx_pack"}},
+      {"id":"hx_skate","slot":"back","name":"Скейт","price":2400,"tier":"dream","ico":"🛹","look":{"kind":"hx_skate"}},
+      {"id":"hx_case","slot":"back","name":"Чемоданчик доктора","price":1200,"tier":"rare","ico":"🩺","look":{"kind":"hx_case"}},
+      {"id":"hx_binder","slot":"back","name":"Книга карточных приключений","price":1800,"tier":"epic","ico":"📗","look":{"kind":"hx_binder"}},
+      {"id":"hx_yoyos","slot":"tail","name":"Два йо-йо","price":1800,"tier":"epic","ico":"🪀","look":{"kind":"hx_yoyos"}},
+      {"id":"hx_kite","slot":"tail","name":"Воздушная рыбка","price":1000,"tier":"rare","ico":"🐟","look":{"kind":"hx_kite"}},
+      {"id":"hx_boots","slot":"paws","name":"Ботинки рыбака","price":900,"tier":"rare","ico":"🥾","look":{"kind":"shoes","style":"hx_boots","color":"#32934d","sole":"#243c37","trim":"#c8ad76"}},
+      {"id":"hx_fur","slot":"coat","name":"Серебряная шерсть","price":1000,"tier":"rare","ico":"☁️","look":{"kind":"coat","coat":"#eef6ff","light":"#fffdf4","ear":"#c8e3ee","tips":"#a9daf2"}},
+      {"id":"hx_lightning","slot":"trail","name":"Молния","price":1800,"tier":"epic","ico":"⚡","look":{"kind":"trail","fx":"lightning"}},
+      {"id":"hx_gum","slot":"trail","name":"Жвачка","price":2000,"tier":"epic","ico":"🩷","look":{"kind":"trail","fx":"gum"}},
+      {"id":"hx_aura","slot":"trail","name":"Нэн-аура","price":900,"tier":"rare","ico":"✨","look":{"kind":"trail","fx":"aura"}},
+      {"id":"whale","world":"whale","name":"Китовый остров","price":2400,"ico":"🌊","slot":"world","tier":"dream"},
+      {"id":"yorknew","world":"yorknew","name":"Йоркшин ночью","price":2800,"ico":"🌃","slot":"world","tier":"dream"},
+      {"id":"greed","world":"greed","name":"Остров Жадности","price":3200,"ico":"🃏","slot":"world","tier":"dream"},
       {"id":"jp_daruma_helmet","slot":"head","name":"Шлем «Дарума»","price":600,"tier":"rare","ico":"🔴","bots":false,"look":{"kind":"jp_daruma_helmet","color":"#ce4e55","face":"#fff0d6","gold":"#edc364","ink":"#4d3540"}},
       // Japanese travel collection: additive IDs, existing prices and saves unchanged.
       {"id":"jp_sakura_wreath","slot":"head","name":"Венок «Сакура»","price":500,"tier":"rare","ico":"🌸","bots":true,"look":{"kind":"jp_wreath","flower":"#ef9fbe","middle":"#f8d578","band":"#80965d"}},

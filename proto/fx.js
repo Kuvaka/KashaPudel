@@ -51,8 +51,9 @@ const puffTex = () => canvasTex(64, 64, (x) => {
 // Dash trails bought in the wardrobe: one atlas, one Points batch for every kind.
 // Cells: 0 crumb, 1 heart, 2 petal, 3 bubble, 4 star, 5 soft dot (tinted: rainbow), 6 leaf and
 // 7 snowflake (both drawn light, tinted per particle; seasons use them too).
-export const TRAIL_CELL = { crumbs: 0, hearts: 1, petals: 2, bubbles: 3, stars: 4, rainbow: 5, leaves: 6, snow: 7, sakura: 2, origami: 8 };
+export const TRAIL_CELL = { crumbs: 0, hearts: 1, petals: 2, bubbles: 3, stars: 4, rainbow: 5, leaves: 6, snow: 7, sakura: 2, origami: 8, lightning:10, gum:11, card:12, gumStain:13, aura:14 };
 const SAKURA = ['#ffb6d0','#ffd6e6','#eda0c1'].map(c=>new THREE.Color(c));
+const HX_AURA=['#8bdca2','#89e5eb'].map(c=>new THREE.Color(c));
 const LEAFY = ['#f08a3c', '#e8603a', '#f5b942'].map((c) => new THREE.Color(c));
 const SNOWY = ['#ffffff', '#dceaff'].map((c) => new THREE.Color(c));
 const RAINBOW = ['#ff8fa3', '#ffc078', '#ffe066', '#9be38b', '#8cc8ff', '#c5a3ff'].map((c) => new THREE.Color(c));
@@ -119,6 +120,12 @@ export const trailTex = () => atlas ??= canvasTex(256, 256, (x) => {
     x.fillStyle='#fff7ed';poly([[7,12],[14,5],[15,-9],[21,-12],[26,-8],[20,-8],[20,8],[13,17]]);
     x.strokeStyle='#dcadb9';x.lineWidth=2;x.beginPath();x.moveTo(-24,-18);x.lineTo(0,10);x.lineTo(23,-18);x.stroke();
   });
+  // Cell 9 reserved for the Italian confetti; HxH occupies 10..14.
+  cell(10,()=>{x.lineCap='round';for(const [c,w]of [['#70d8ff',12],['#ffffff',5]]){x.strokeStyle=c;x.lineWidth=w;x.beginPath();x.moveTo(15,-25);x.lineTo(-8,-5);x.lineTo(10,0);x.lineTo(-15,25);x.stroke();}});
+  cell(11,()=>{x.fillStyle='#ffffff';x.beginPath();x.ellipse(0,0,31,2.5,0,0,7);x.fill();});
+  cell(12,()=>{x.fillStyle='#f9f2d7';x.strokeStyle='#746292';x.lineWidth=4;x.fillRect(-17,-25,34,50);x.strokeRect(-17,-25,34,50);x.fillStyle='#7aa393';x.fillRect(-10,-15,20,29);x.fillStyle='#f9f2d7';x.beginPath();x.moveTo(0,-10);x.lineTo(7,0);x.lineTo(0,10);x.lineTo(-7,0);x.closePath();x.fill();});
+  cell(13,()=>{x.fillStyle='#ffffff';x.beginPath();x.ellipse(0,0,28,8,0,0,7);x.fill();for(const [a,b]of [[-16,5],[13,-5]]){x.beginPath();x.ellipse(a,b,9,6,0,0,7);x.fill();}});
+  cell(14,()=>{x.fillStyle='#ffffff';x.beginPath();for(let i=0;i<10;i++){const a=i*Math.PI/5-Math.PI/2,r=i%2?9:25;x.lineTo(Math.cos(a)*r,Math.sin(a)*r);}x.closePath();x.fill();});
 });
 const SPLASH = ['#d8f3ff', '#9fd8f5'];
 export const trailMaterial = (map) => new THREE.ShaderMaterial({
@@ -198,15 +205,40 @@ export class FX {
     this.ti = 0; this.rbi = 0;
   }
 
+  // Generic emitters skip live elastic threads; inactive slots return to the same 240 pool.
+  particle(){for(let i=0;i<this.maxTrail;i++){const p=this.parts[this.ti++%this.maxTrail];if(!p.locked){p.gumAngle=false;return p;}}return this.parts[0];}
+  electricStart(pos,dir,R){
+    this.trail('lightning',pos,dir,R,3);const p=this.particle();p.p.copy(pos);p.p.y=R*.32;p.v.set(0,0,0);p.c.set('#a7edff');Object.assign(p,{t:0,life:.22,size:R*2.3,cell:10,rot:0,vr:0,g:0});
+  }
+  // One owner per dog, max nine concurrent dash threads. 8 segments + 3 stains each.
+  elastic(owner,pos,dir,R,dashing,dt){
+    const states=this.gumStates??=Array.from({length:9},(_,i)=>({owner:null,age:2,anchor:new THREE.Vector3(),end:new THREE.Vector3(),dir:new THREE.Vector3(),indices:Array.from({length:11},(_,j)=>141+i*11+j),was:false}));
+    let a=states.find(s=>s.owner===owner);if(!a){if(!dashing)return;a=states.find(s=>s.age>=1.5);if(!a)return;a.owner=owner;a.was=false;}
+    if(dashing&&!a.was){a.age=0;a.anchor.copy(pos);a.end.copy(pos);a.dir.copy(dir);a.R=R;for(const idx of a.indices){const p=this.parts[idx];p.locked=true;p.c.set('#f28fbb');p.v.set(0,0,0);p.g=0;p.vr=0;p.rot=0;p.t=.02;p.life=2;}}
+    a.was=dashing;if(a.age>=1.5)return;if(dashing){a.end.copy(pos);a.dir.copy(dir);}
+    const release=Math.min(1,Math.max(0,(a.age-.45)/.30)),distance=a.anchor.distanceTo(a.end),dx=a.end.x-a.anchor.x,dz=a.end.z-a.anchor.z;
+    for(let j=0;j<11;j++){
+      const p=this.parts[a.indices[j]];
+      if(j<8){if(release>=1){p.t=p.life;continue;}const u=(j+.5)/8,keep=1-release,pct=release*.5+u*keep;
+       p.p.set(a.anchor.x+dx*pct+a.dir.z*Math.sin(u*Math.PI*2)*R*release,a.R*.32+Math.sin(u*Math.PI)*R*.12,a.anchor.z+dz*pct-a.dir.x*Math.sin(u*Math.PI*2)*R*release);
+       p.size=Math.max(R*.35,distance/8*1.40)*keep;p.cell=11;p.hxDX=dx;p.hxDZ=dz;p.gumAngle=true;p.t=.02;p.life=.9;
+      }else{const u=(j-7)/4;p.p.set(a.anchor.x+dx*u,.15,a.anchor.z+dz*u);p.size=R*(.65+.05*(j%2));p.cell=13;p.hxDX=dx;p.hxDZ=dz;p.gumAngle=true;p.t=.15+Math.max(0,a.age-.45);p.life=1.15;}
+      // Keep all 11 slots owned until the shared 1.5 s release. Otherwise a fading
+      // thread could overwrite a generic particle which reused one of its old indices.
+    }
+  }
+
   // `count` new trail particles of `kind` behind a dashing dog.
   trail(kind, pos, dir, R, count) {
+    if(kind==='gum')return;
     if (kind === 'origami') count = Math.max(1, Math.ceil(count * .4));
     const cell = TRAIL_CELL[kind] ?? 5, rb = kind === 'rainbow';
     tx.set(-dir.z, 0, dir.x);
     for (let i = 0; i < count; i++) {
       const band = rb ? 6 : 1, jit = (Math.random() - 0.5) * R * 0.5;
       for (let j = 0; j < band; j++) {
-        const T = this.parts[this.ti++ % this.maxTrail];
+        const T = this.particle();
+        T.gumAngle=false; T.locked=false;
         T.p.copy(pos).addScaledVector(dir, -R * 0.7).addScaledVector(tx, rb ? 0 : jit);
         T.p.y = rb ? R * (1.25 - j * 0.13) : R * (0.4 + Math.random() * 0.9);
         T.v.copy(dir).multiplyScalar(-R * (rb ? 0.2 : 0.8)).addScaledVector(tx, rb ? 0 : jit * 0.8);
@@ -215,8 +247,9 @@ export class FX {
         // Short-lived, and crumbs vanish before they land: nothing on the grass may look like food.
         T.t = 0; T.life = rb ? 0.5 : kind === 'crumbs' ? 0.35 + Math.random() * 0.1 : 0.5 + Math.random() * 0.3;
         T.size = R * (kind === 'origami' ? 0.52 : rb ? 0.3 : kind === 'crumbs' ? 0.2 + Math.random() * 0.08 : 0.3 + Math.random() * 0.15);
-        T.cell = cell; T.rot = kind === 'origami' ? (Math.random()-.5)*.7 : Math.random() * 6.28; T.vr = kind === 'origami' ? (Math.random()-.5)*1.5 : rb || kind === 'bubbles' ? 0 : (Math.random() - 0.5) * 8;
-        T.c.copy(kind === 'sakura' ? SAKURA[i % 3] : rb ? RAINBOW[j] : kind === 'leaves' ? LEAFY[i % 3] : kind === 'snow' ? SNOWY[i % 2] : WHITE);
+        if(kind==='lightning'){T.life=.25+Math.random()*.15;T.size=R*.90;T.vr=0;}
+        T.cell = kind==='lightning'&&i%3!==0?5:cell; T.rot = kind === 'origami' ? (Math.random()-.5)*.7 : Math.random() * 6.28; T.vr = kind === 'origami' ? (Math.random()-.5)*1.5 : rb || kind === 'bubbles' ? 0 : (Math.random() - 0.5) * 8;
+        T.c.copy(kind==='aura'?HX_AURA[i%2]:kind === 'sakura' ? SAKURA[i % 3] : rb ? RAINBOW[j] : kind === 'leaves' ? LEAFY[i % 3] : kind === 'snow' ? SNOWY[i % 2] : WHITE);
       }
     }
   }
@@ -225,10 +258,10 @@ export class FX {
   splash(pos, R, big, vx = 0, vz = 0, cols = SPLASH) {
     const n = big ? 22 : 9, v = Math.hypot(vx, vz) || 1;
     for (let i = 0; i < n; i++) {
-      const T = this.parts[this.ti++ % this.maxTrail], a = Math.random() * Math.PI * 2, s = R * (1 + Math.random() * (big ? 2.4 : 1.4));
+      const T = this.particle(), a = Math.random() * Math.PI * 2, s = R * (1 + Math.random() * (big ? 2.4 : 1.4));
       T.p.copy(pos).add(tv.set(Math.cos(a) * R * 0.5, R * 0.15, Math.sin(a) * R * 0.5));
       T.v.set(Math.cos(a) * s * 0.6 + vx / v * R * 0.8, s * (1.2 + Math.random()), Math.sin(a) * s * 0.6 + vz / v * R * 0.8);
-      T.g = R * 9; T.t = 0; T.life = 0.35 + Math.random() * 0.2;
+      T.gumAngle=false;T.locked=false;T.g = R * 9; T.t = 0; T.life = 0.35 + Math.random() * 0.2;
       T.size = R * (0.12 + Math.random() * 0.1); T.cell = TRAIL_CELL.bubbles; T.rot = 0; T.vr = 0;
       T.c.set(cols[Math.random() < 0.5 ? 0 : 1]);
     }
@@ -280,7 +313,8 @@ export class FX {
   }
 
   update(dt, camera, pxPerUnit = 1) {
-    this.updateTrail(dt, pxPerUnit);
+    for(const a of this.gumStates??[]){a.age+=dt;if(a.age>=1.5){a.owner=null;a.was=false;for(const idx of a.indices)this.parts[idx].locked=false;}}
+    this.updateTrail(dt, pxPerUnit, camera);
     for (const R of this.rings) {
       if (!R.m.visible) continue;
       R.t += dt;
@@ -321,13 +355,14 @@ export class FX {
 
   // Fitting room treadmill: the dog runs in place, so the effects slide back instead.
   drift(dx, dz) {
+    for(const a of this.gumStates??[])if(a.age<1.5){a.anchor.x+=dx;a.anchor.z+=dz;a.end.x+=dx;a.end.z+=dz;}
     for (const T of this.parts) if (T.t < T.life) { T.p.x += dx; T.p.z += dz; }
     for (const S of this.streaks) if (S.t < S.life) { S.p.x += dx; S.p.z += dz; }
     for (const P of this.puffs) if (P.s.visible) { P.s.position.x += dx; P.s.position.z += dz; }
     for (const R of this.rings) if (R.m.visible) { R.m.position.x += dx; R.m.position.z += dz; }
   }
 
-  updateTrail(dt, pxPerUnit) {
+  updateTrail(dt, pxPerUnit, camera) {
     const g = this.trailPts.geometry, A = g.attributes;
     let n = 0;
     for (const T of this.parts) {
@@ -336,8 +371,9 @@ export class FX {
       const k = T.t / T.life;
       if (k >= 1) continue;
       T.v.y -= T.g * dt; T.p.addScaledVector(T.v, dt); T.rot += T.vr * dt;
-      A.position.setXYZ(n, T.p.x, Math.max(T.p.y, T.size * 0.3), T.p.z);
-      A.aSize.setX(n, T.size * (k < 0.15 ? k / 0.15 : 1));
+      A.position.setXYZ(n, T.p.x, T.gumAngle?T.p.y:Math.max(T.p.y, T.size * 0.3), T.p.z);
+      A.aSize.setX(n, T.size * (T.gumAngle?1:k < 0.15 ? k / 0.15 : 1));
+      if(T.gumAngle&&camera){const e=camera.matrixWorldInverse.elements;T.rot=Math.atan2(e[1]*T.hxDX+e[9]*T.hxDZ,e[0]*T.hxDX+e[8]*T.hxDZ);}
       A.aCell.setX(n, T.cell); A.aRot.setX(n, T.rot);
       A.aAlpha.setX(n, k < 0.6 ? 1 : (1 - k) / 0.4);
       A.aColor.setXYZ(n, T.c.r, T.c.g, T.c.b);

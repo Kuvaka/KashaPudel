@@ -863,6 +863,48 @@ jpShoes=function(L){
   return {mount:'paw',geo:tight(p)};
 };
 
+// HxH expedition collection. All vertices are shared except the per-dog dynamic hair clone.
+const hxOrbGeo=new THREE.SphereGeometry(1,12,8);
+const hxBox=(c,p,s,r=[0,0,0])=>part(box(),c,p,r,s);
+const hxOrb=(c,p,s,r=[0,0,0])=>part(hxOrbGeo,c,p,r,s);
+function hxTube(points,r=.035,n=12,c='#674b3d'){
+ const g=new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points.map(p=>new THREE.Vector3(...p))),n,r,6,false),a=part(g,c);g.dispose();return a;
+}
+function hxMerge(parts){const a=mergeGeometries(parts),g=mergeVertices(a);a.dispose();parts.forEach(p=>p.dispose());g.computeBoundingSphere();return g;}
+function hxLock(c,p,h,r,lx=0,lz=0){const g=new THREE.CylinderGeometry(.013,r,h,10,12),a=g.attributes.position;for(let i=0;i<a.count;i++){const u=(a.getY(i)+h/2)/h,bulge=1+.40*Math.sin(PI*u);a.setXYZ(i,a.getX(i)*bulge+lx*u*u,a.getY(i)+h/2,a.getZ(i)*bulge+lz*u*u);}g.computeVertexNormals();const q=part(g,c,p);g.dispose();return q;}
+function hxMount(parts,mount='head',p=[0,0,0],scale=1){return {mount,geo:hxMerge(parts),place:P=>[p.map(x=>x*(mount==='back'?P.bw:mount==='tail'?1:P.hw)),[0,0,0],scale*(mount==='back'?P.bw:mount==='tail'?1:P.hw)]};}
+function hxMorph(forms){const g=forms[0].clone();g.morphTargetsRelative=false;g.morphAttributes.position=forms.map(f=>f.attributes.position.clone());g.morphAttributes.normal=forms.map(f=>f.attributes.normal.clone());g.boundingSphere=new THREE.Sphere(new THREE.Vector3(),5);forms.forEach(f=>f.dispose());return g;}
+function hxHead(make){const base=make();const forms=PROFILES.map((P,i)=>{const g=base.clone();g.scale(P.hw,P.hw*(1+i*.006),P.hw);return g;});base.dispose();return {mount:'head',headMorph:true,geo:hxMorph(forms)};}
+const hxCloth=d=>d.y>-.48&&d.x<.68&&d.x>-.76;
+Object.assign(CUTS,{
+ hx_jacket:{mask:d=>hxCloth(d)&&!(d.x>.48&&Math.abs(d.z)<.11&&d.y<.16),gap:()=>.105,paint:(d,L)=>d.x>.49||d.x<-.63||d.y<-.35||Math.abs(d.z)>.58&&Math.abs(d.x+.12)<.18&&d.y<.20&&d.y>-.08?L.trim:L.color},
+ hx_shirt:{mask:d=>d.y>-.48&&d.x<.77&&d.x>-.74,gap:d=>d.x>.54?.13:.09,paint:(d,L)=>d.x>.5||d.x<-.61||d.y<-.30?L.trim:L.color},
+ hx_suit:{mask:hxCloth,gap:()=>.105,paint:(d,L)=>d.x>.46&&Math.abs(d.z)<.14?'#df6067':d.x>.27&&Math.abs(d.z)<.38&&d.y<.46?L.trim:d.x<-.62?'#1c497a':L.color},
+ hx_cloak:{mask:d=>d.y>-.03-.27*Math.max(0,-d.x)&&d.x<.70&&d.x>-.94,gap:d=>.10+.18*Math.max(0,-d.x-.15),paint:(d,L)=>d.x>.56||d.x<-.82||d.y<.12||Math.abs(d.z)>.55&&(Math.abs(d.x+.20)<.10||Math.abs(d.y-.32)<.075)?L.trim:L.color},
+});
+Object.assign(BUILD,{
+ hx_cap(){return hxMount([hxOrb('#319752',[-.07,.38,0],[.57,.25,.52]),hxOrb('#1b3132',[.44,.34,0],[.46,.055,.51]),hxBox('#58c16f',[-.03,.58,0],[.28,.08,.13])]);},
+ hx_hat(){const p=[hxOrb('#bd743d',[-.06,.41,0],[.77,.065,.70]),hxOrb('#ca8a48',[-.13,.56,0],[.46,.27,.43]),part(torus(.44,.047,24),'#614636',[-.13,.48,0],[PI/2,0,0])];p.push(hxOrb('#f4e7b9',[-.32,.85,.29],[.065,.39,.13],[.15,0,-.45]),hxTube([[-.18,.57,.28],[-.40,.96,.28]],.022,6,'#6a6045'));return hxMount(p);},
+ hx_band(){return hxMount([part(torus(.51,.07,24),'#429963',[0,.28,0],[PI/2,0,0],[1,1,.75]),hxOrb('#f4ecca',[.50,.29,0],[.07,.15,.17]),hxBox('#294e40',[.57,.29,0],[.025,.23,.042],[PI/4,0,0]),hxBox('#294e40',[.57,.29,0],[.025,.23,.042],[-PI/4,0,0])]);},
+ hx_hibiscus(){const p=[part(torus(.46,.04,20),'#477d3f',[0,.38,0],[PI/2,0,0])];for(let j=0;j<3;j++){const x=.26-j*.24,y=.48+j*.045,z=.30;for(let i=0;i<5;i++){const a=i*PI*2/5;p.push(hxOrb(j===1?'#ffb05f':'#ee7958',[x+Math.cos(a)*.11,y+Math.sin(a)*.10,z],[.13,.12,.048]));}p.push(hxOrb('#ffe98a',[x,y,z+.048],[.065,.065,.035]));}for(const x of [-.46,.38])p.push(hxOrb('#4b9955',[x,.49,.25],[.23,.07,.105],[0,0,x]));return hxMount(p);},
+ hx_helmet(){return hxHead(()=>{const p=[part(new THREE.SphereGeometry(1,24,12,0,PI*2,0,PI*.55),'#216458',[0,.20,0],[0,0,0],[.56,.39,.55]),part(torus(.52,.045,28),'#9bd3a8',[0,.17,0],[PI/2,0,0],[1,1,1])];for(let i=0;i<6;i++){const t=i/5;p.push(hxOrb(i%2?'#286a61':'#397e6c',[-.25-.94*t,.55-.68*t+.16*Math.sin(PI*t),0],[.25-.11*t,.20-.10*t,.25-.12*t],[0,0,.2+.8*t]));}return hxMerge(p);});},
+ hx_silver(){return hxHead(()=>{const p=[hxOrb('#cbe4f1',[-.08,.26,0],[.49,.22,.45])];for(let i=0;i<8;i++){const a=i*PI*2/8,dx=Math.cos(a)*.26-.08,dz=Math.sin(a)*.31;p.push(hxLock(i%3===0?'#c3e0f1':'#f5fcff',[dx,.22,dz],.24+(i%3)*.09,.22,Math.cos(a)*.45-.11,Math.sin(a)*.45));}for(let i=0;i<2;i++)p.push(hxLock('#f5fcff',[-.08+i*.08,.32,i?.13:-.13],.55+i*.10,.22,-.25,i?.09:-.09));return hxMerge(p);});},
+ hx_hair(){const b=hxHead(()=>{const p=[hxOrb('#1b453b',[-.07,.34,0],[.46,.19,.43])];for(let j=0;j<7;j++){const a=j*PI*2/7,x=Math.cos(a)*.20-.04,z=Math.sin(a)*.25;p.push(hxLock(j%2?'#163c32':'#244f3f',[x,.36,z],2.05+(j%3)*.16,.24,-.40-(j%2)*.16,Math.sin(a)*.12));}return hxMerge(p);});b.dynamicHair=true;b.headMorph=false;return b;},
+ hx_license(){return hxMount([part(torus(.43,.027,22),'#283e3c',[0,-.35,0],[PI/2,0,0]),hxTube([[.41,-.33,-.18],[.57,-.63,0],[.41,-.33,.18]],.023,8,'#263b37'),hxBox('#3c9864',[.57,-.68,0],[.05,.35,.42]),hxBox('#f4ecd2',[.603,-.68,0],[.02,.27,.34]),hxBox('#2c7558',[.62,-.63,-.075],[.02,.085,.085]),hxBox('#6caa7b',[.62,-.75,.035],[.02,.028,.22])]);},
+ hx_scarlet(){const p=[part(torus(.42,.028,22),'#655349',[0,-.37,0],[PI/2,0,0]),hxTube([[.43,-.37,0],[.55,-.61,0]],.025,6,'#dcb455'),part(new THREE.OctahedronGeometry(.23,0),'#ca4357',[.55,-.72,0],[0,0,.25],[.65,1.2,.85]),hxOrb('#fff1d7',[.67,-.63,.045],[.023,.055,.04])];return hxMount(p);},
+ hx_bow(){return hxMount([part(torus(.42,.045,22),'#8061af',[0,-.36,0],[PI/2,0,0]),hxOrb('#9871c5',[.49,-.43,-.20],[.09,.13,.23],[.28,0,0]),hxOrb('#9871c5',[.49,-.43,.20],[.09,.13,.23],[-.28,0,0]),hxOrb('#633c96',[.58,-.43,0],[.065,.10,.09]),hxBox('#8061af',[.50,-.62,.16],[.09,.28,.12],[.20,0,0]),hxBox('#8061af',[.50,-.62,-.16],[.09,.28,.12],[-.20,0,0])]);},
+ hx_glasses(){const p=[];for(const z of [-.225,.225])p.push(part(new THREE.TorusGeometry(.171,.018,6,24),'#307cb5',[.50,.015,z],[0,PI/2,0]));p.push(hxTube([[.52,.04,-.06],[.55,.08,0],[.52,.04,.06]],.016,8,'#307cb5'));for(const s of [-1,1])p.push(hxTube([[.48,.03,s*.37],[.12,.05,s*.53],[-.12,.02,s*.52]],.018,8,'#307cb5'));return hxMount(p);},
+ hx_diamond(){return hxMount([hxBox('#c875b5',[.40,-.15,.40],[.032,.18,.18],[PI/4,0,-.10]),hxBox('#fae4ea',[.42,-.15,.40],[.014,.085,.085],[PI/4,0,-.10])]);},
+ hx_pack(){const p=[hxOrb('#378b4a',[-.16,.29,0],[.48,.43,.40]),hxOrb('#54a35d',[-.16,.60,0],[.50,.14,.43]),hxBox('#c49c63',[.26,.37,0],[.075,.36,.13]),hxBox('#dec78d',[.303,.33,0],[.024,.13,.17])];for(const z of [-.24,.24])p.push(hxTube([[.22,.43,z],[.48,.14,z],[.27,-.48,z],[-.25,-.50,z],[-.45,.26,z]],.045,12,'#78583c'));p.push(hxTube([[-.32,.24,.42],[-.75,1.15,.43],[-1.48,1.95,.43]],.035,14,'#765236'));p.push(hxTube([[-1.48,1.95,.43],[-1.61,1.56,.43],[-1.64,1.12,.43]],.013,12,'#e6dec2'));const rest=hxMerge(p);const float=()=>hxMerge([hxOrb('#e96059',[-1.64,1.10,.43],[.075,.14,.075]),hxOrb('#fff1d9',[-1.64,1.00,.43],[.072,.09,.072])]);const f0=float(),f1=float();f1.translate(.15,.07,.12);const all0=mergeGeometries([rest,f0]),all1=mergeGeometries([rest,f1]);rest.dispose();f0.dispose();f1.dispose();return {mount:'back',geo:hxMorph([all0,all1]),bobber:true,place:P=>[[-P.bw*.16,0,0],[0,0,0],P.bw*.74]};},
+ hx_skate(){const p=[hxOrb('#59bec8',[-.13,.27,0],[.34,.11,.88]),hxBox('#d9dfc0',[-.13,.35,0],[.47,.04,1.30]),hxBox('#32878f',[-.13,.377,0],[.14,.023,.82])];for(const z of [-.57,.57]){p.push(hxBox('#5b6680',[-.13,.13,z],[.80,.07,.08]));for(const x of [-.46,.20])p.push(part(new THREE.CylinderGeometry(.12,.12,.10,12),'#efa05e',[x,.12,z],[0,0,PI/2]));}for(const z of [-.30,.30])p.push(hxTube([[-.48,.27,z],[-.56,-.22,z],[.44,-.28,z],[.35,.27,z]],.044,10,'#455985'));const b=hxMount(p,'back',[-.34,.25,0],.85);b.geo.rotateY(PI/2);b.geo.rotateZ(-.75);b.geo.computeBoundingSphere();return b;},
+ hx_case(){const p=[hxBox('#d5e8ed',[0,.28,0],[.76,.52,.52]),hxBox('#5085b7',[.394,.28,0],[.035,.52,.52]),hxTube([[-.23,.57,0],[-.23,.77,0],[.22,.77,0],[.22,.57,0]],.054,10,'#326395')];for(const s of [-1,1]){p.push(hxBox('#2e6a9f',[0,.30,s*.27],[.12,.29,.025]),hxBox('#2e6a9f',[0,.30,s*.27],[.34,.11,.025]));}return hxMount(p,'back',[-.25,0,0],.79);},
+ hx_binder(){const p=[hxBox('#754e9c',[0,.25,0],[.88,.22,.73]),hxBox('#e8e3cc',[0,.26,.03],[.72,.13,.63]),hxBox('#3b9e73',[0,.38,0],[.88,.045,.73]),hxBox('#dcd8b5',[0,.409,0],[.33,.025,.44]),hxBox('#82629c',[0,.426,0],[.12,.019,.20])];for(const x of [-.34,.34])for(const z of [-.27,.27])p.push(hxBox('#e1c276',[x,.415,z],[.14,.024,.12]));for(const z of [-.20,.20])p.push(hxTube([[-.36,.16,z],[-.40,-.36,z],[.35,-.36,z],[.39,.16,z]],.040,10,'#685380'));return hxMount(p,'back',[-.16,.02,0],.95);},
+ hx_yoyos(){const p=[];for(const j of [0,1]){const x=j*.40-.20,z=.82,y=-.48-j*.30;p.push(hxTube([[0,0,0],[x,.06,.48],[x,y,z]],.027,10,'#eae7db'));for(const s of [-1,1]){p.push(part(new THREE.CylinderGeometry(.25,.25,.12,18),'#3778bd',[x,y,z+s*.10],[PI/2,0,0]));p.push(part(torus(.15,.035,18),'#c4dded',[x,y,z+s*.17]));}}return hxMount(p,'tail',[0,0,0],.85);},
+ hx_kite(){const p=[hxTube([[0,0,0],[-.28,.19,.54],[-.72,.23,1]],.029,12,'#dfc89d'),hxOrb('#ec955b',[-.90,.21,1.03],[.44,.23,.09]),part(cone,'#4daab3',[-1.40,.20,1.03],[0,0,PI/2],[.23,.40,.09]),hxOrb('#3a4f56',[-.64,.28,1.12],[.045,.045,.025])];p.push(part(cone,'#4daab3',[-.99,.47,1.03],[0,0,0],[.16,.22,.08]));return hxMount(p,'tail',[0,0,0],.72);},
+});
+const hxShoesOriginal=BUILD.shoes;
+BUILD.shoes=L=>L.style!=='hx_boots'?hxShoesOriginal(L):{mount:'paw',geo:hxMerge([hxOrb(L.color,[.06,.03,0],[1.1,.99,1.05]),hxOrb(L.sole,[.08,-.77,0],[1.16,.23,1.10]),part(torus(.80,.17,20),L.trim,[0,.76,0],[PI/2,0,0]),hxBox('#183c2c',[.95,.12,0],[.17,.35,.47])])};
+
 const looks = new Map();
 let itemMat = null;
 export function itemMaterial() { return itemMat ??= Object.assign(toonMaterial('#ffffff'), { vertexColors: true }); }
@@ -886,7 +928,7 @@ export function bootMaterial(color) {
 // A bought coat colour for all six stages: the puppy a paler version, the grown dog the full one.
 const palettes = new Map();
 export function coatPalette(look) {
-  const key = look.coat + look.light + look.ear + (look.spots ?? '');
+  const key = look.coat + look.light + look.ear + (look.spots ?? '')+(look.tips??'');
   if (palettes.has(key)) return palettes.get(key);
   const light = new THREE.Color(look.light), c = new THREE.Color(), e = new THREE.Color();
   const pal = [0.4, 0.3, 0.2, 0.1, 0.04, 0].map((k) => ({
@@ -895,6 +937,7 @@ export function coatPalette(look) {
     ear: '#' + e.set(look.ear).lerp(light, k * 0.6).getHexString(),
   }));
   if (look.spots) pal.spots = look.spots.map((s) => new THREE.Color(s)); // marble: patches on the body
+  pal.tips=look.tips;
   palettes.set(key, pal);
   return pal;
 }

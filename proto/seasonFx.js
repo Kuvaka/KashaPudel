@@ -15,6 +15,7 @@ function rng(seed) {
 
 // Weather looks per season: atlas cell, tints, size (world units), fall speed, sway, spin.
 const WEATHER = {
+  greed:{n:18,cell:TRAIL_CELL.card,cols:['#ffffff','#e7dae8'],size:[13,18],fall:[24,38],sway:20,spin:1.4},
   sakura: { n:64,cell:TRAIL_CELL.petals,cols:['#ffb7d0','#ffd3e2','#ef9fc2'],size:[8,12],fall:[20,34],sway:38,spin:1.6 },
   kyoto: { n: 24, cell: TRAIL_CELL.petals, cols: ['#f2bfd2', '#e8a9c3'], size: [8, 11], fall: [22, 34], sway: 36, spin: 1.6 },
   italy: null,
@@ -125,7 +126,7 @@ class PawPrints {
 const UPV = new THREE.Vector3(0, 1, 0);
 
 // Leaf pile: a low dome of litter covered with leaves in autumn colours (vertex colours), radius ~1.
-function pileGeometry(cols=LEAF_COLS,baseColor='#a8532a') {
+function pileGeometry(cols=LEAF_COLS,baseColor='#a8532a',cardPile=false) {
   const r = rng(5), pos = [], col = [];
   const c = new THREE.Color(), H = 0.42, R0 = 0.9;
   const tri = (a, b, d, cc) => { pos.push(...a, ...b, ...d); for (let k = 0; k < 3; k++) col.push(cc.r, cc.g, cc.b); };
@@ -152,7 +153,7 @@ function pileGeometry(cols=LEAF_COLS,baseColor='#a8532a') {
       return [cx + x, cy + u * tilt, cz + z];
     };
     // A six-point leaf: tip, two shoulders, stem end, two hips.
-    const q = [pt(L, 0), pt(L * 0.35, Wd), pt(-L * 0.45, Wd * 0.8), pt(-L, 0), pt(-L * 0.45, -Wd * 0.8), pt(L * 0.35, -Wd)];
+    const q = cardPile?[pt(L,Wd),pt(-L,Wd),pt(-L,-Wd),pt(L,-Wd),pt(L,-Wd),pt(L,-Wd)]:[pt(L, 0), pt(L * 0.35, Wd), pt(-L * 0.45, Wd * 0.8), pt(-L, 0), pt(-L * 0.45, -Wd * 0.8), pt(L * 0.35, -Wd)];
     for (let k = 1; k < 5; k++) tri(q[0], q[k], q[k + 1], c);
   }
   const g = new THREE.BufferGeometry();
@@ -164,9 +165,9 @@ function pileGeometry(cols=LEAF_COLS,baseColor='#a8532a') {
 // Leaf piles are game obstacles (game.obstacles, kind 'leaves'): a dog running into one
 // scatters it (burst), it comes back with a little grow when the game says so.
 class LeafPiles {
-  constructor(scene,cols,baseColor) {
+  constructor(scene,cols,baseColor,cardPile=false) {
     this.mat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide });
-    this.mesh = new THREE.InstancedMesh(pileGeometry(cols,baseColor), this.mat, 64);
+    this.mesh = new THREE.InstancedMesh(pileGeometry(cols,baseColor,cardPile), this.mat, 64);
     this.mesh.frustumCulled = false; this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.mesh.count = 0;
     scene.add(this.mesh);
@@ -193,11 +194,11 @@ class LeafPiles {
 
 // weatherOnly: just the falling weather (the wardrobe's fitting room).
 export function buildSeasonFx(scene, season, { weatherOnly = false, sources = [] } = {}) {
-  const look = WEATHER[season], petalPile=season==='sakura';
-  const pileCols=petalPile?['#ffd3e2','#f5a9c8','#e58aae']:LEAF_COLS;
+  const look = WEATHER[season], petalPile=season==='sakura',cardPile=season==='greed';
+  const pileCols=cardPile?['#f2e5bf','#e9e1ce','#9b88ad']:petalPile?['#ffd3e2','#f5a9c8','#e58aae']:LEAF_COLS;
   const parts = look || season === 'autumn' || petalPile ? new Particles(scene, (look?.n ?? 0) + 160) : null;
   const prints = season === 'winter' && !weatherOnly ? new PawPrints(scene) : null;
-  const piles = (season === 'autumn' || petalPile) && !weatherOnly ? new LeafPiles(scene,pileCols,petalPile?'#bf7599':'#a8532a') : null;
+  const piles = (season === 'autumn' || petalPile || cardPile) && !weatherOnly ? new LeafPiles(scene,pileCols,cardPile?'#9785a7':petalPile?'#bf7599':'#a8532a',cardPile) : null;
   const r = Math.random;
   const flakes = look ? Array.from({ length: weatherOnly && petalPile ? 16 : look.n }, () => ({ x: 0, y: -1, z: 0, vy: 0, ph: r() * TAU, size: 0, rot: r() * TAU, vr: 0, c: new THREE.Color() })) : [];
   const bits = []; // leaves thrown out of a pile
@@ -253,7 +254,7 @@ export function buildSeasonFx(scene, season, { weatherOnly = false, sources = []
         b.vy = Math.max(b.vy - 360 * dt, -45); b.vx *= Math.exp(-1.6 * dt); b.vz *= Math.exp(-1.6 * dt); b.vx += Math.sin(b.t * 7 + b.rot) * 60 * dt;
         b.x += b.vx * dt; b.y = Math.max(2, b.y + b.vy * dt); b.z += b.vz * dt; b.rot += b.vr * dt;
         const k = b.t / b.life;
-        parts.push(b.x, b.y, b.z, b.size, petalPile ? TRAIL_CELL.petals : TRAIL_CELL.leaves, k < 0.7 ? 1 : (1 - k) / 0.3, b.rot, b.c);
+        parts.push(b.x, b.y, b.z, b.size, cardPile?TRAIL_CELL.card:petalPile ? TRAIL_CELL.petals : TRAIL_CELL.leaves, k < 0.7 ? 1 : (1 - k) / 0.3, b.rot, b.c);
       }
       parts.end(px);
     },

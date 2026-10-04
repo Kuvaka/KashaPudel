@@ -79,9 +79,11 @@ vec3 spots(vec3 col, vec3 shade, float k) {
 
 export function coatMaterial(color, patchColor = color) {
   const m = new THREE.MeshToonMaterial({ color, gradientMap: gradientMap(), vertexColors: true });
+  m.userData.tips={on:{value:0},color:{value:new THREE.Color('#a9daf2')}};
   m.userData.patch = { value: new THREE.Color(patchColor) };
   m.userData.spots = { on: { value: 0 }, a: { value: new THREE.Color() }, b: { value: new THREE.Color() } };
   m.onBeforeCompile = (sh) => {
+    sh.uniforms.uTipOn=m.userData.tips.on;sh.uniforms.uTipColor=m.userData.tips.color;
     sh.uniforms.uPatch = m.userData.patch;
     sh.uniforms.uSpotOn = m.userData.spots.on; sh.uniforms.uSpotA = m.userData.spots.a; sh.uniforms.uSpotB = m.userData.spots.b;
     Object.assign(sh.uniforms, LOCK_UNIFORMS);
@@ -89,9 +91,9 @@ export function coatMaterial(color, patchColor = color) {
       .replace('#include <common>', '#include <common>\nattribute float furPatch;\nattribute vec3 outlineDir;\nattribute vec2 lockInfo;\nvarying float vPatch;\nvarying vec3 vDir;\nvarying vec2 vLock;\nvarying vec3 vBase;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvPatch = furPatch;\nvDir = outlineDir;\nvLock = lockInfo;\nvBase = position;');
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform vec3 uPatch;\nvarying float vPatch;\nvarying vec3 vDir;\nvarying vec2 vLock;\nvarying vec3 vBase;\n' + SPOT_GLSL + LOCK_GLSL)
+      .replace('#include <common>', '#include <common>\nuniform float uTipOn;uniform vec3 uTipColor;uniform vec3 uPatch;\nvarying float vPatch;\nvarying vec3 vDir;\nvarying vec2 vLock;\nvarying vec3 vBase;\n' + SPOT_GLSL + LOCK_GLSL)
       .replace('#include <color_fragment>',
-        '#include <color_fragment>\ndiffuseColor.rgb = mix(diffuseColor.rgb, uPatch * vColor.rgb, vPatch);\nif (uSpotOn > 0.5) diffuseColor.rgb = spots(diffuseColor.rgb, vColor.rgb, 1.0 - vPatch);')
+        '#include <color_fragment>\ndiffuseColor.rgb = mix(diffuseColor.rgb, uPatch * vColor.rgb, vPatch);\ndiffuseColor.rgb=mix(diffuseColor.rgb,uTipColor*vColor.rgb,uTipOn*smoothstep(.89,.99,vColor.r)*(1.0-vPatch)*.48);\nif (uSpotOn > 0.5) diffuseColor.rgb = spots(diffuseColor.rgb, vColor.rgb, 1.0 - vPatch);')
       .replace('#include <opaque_fragment>',
         '#include <opaque_fragment>\ngl_FragColor.rgb = mix(gl_FragColor.rgb, uInkColor, 0.7 * lockInk(vDir, vLock.x, vLock.y));');
   };

@@ -161,6 +161,25 @@ function makeCrown(mat) {
   return g;
 }
 
+// Five spring directions deform one continuous mesh. Each dog owns its clone and state.
+// Geometry/morph inputs remain cached and immutable; no per-frame object allocation.
+function hxHairUpdate(item,st,next,w,speed,dt){
+ const {mesh,b}=item,g=mesh.geometry;
+ const H=item.hairState??=( {a:new Float64Array(5),v:new Float64Array(5),x:new Float64Array(6),y:new Float64Array(6)} );
+ const target=Math.min(1,Math.max(0,speed))*1.42;
+ let remaining=Math.min(.05,Math.max(0,dt));while(remaining>1e-8){const h=Math.min(1/120,remaining);remaining-=h;for(let j=4;j>=0;j--){const want=j?H.a[j-1]:target;H.v[j]+=(900*(want-H.a[j])-44*H.v[j])*h;H.a[j]+=H.v[j]*h;}}
+ const hw=PROFILES[st].hw*(1-w)+PROFILES[next].hw*w,sy=(1+st*.006)*(1-w)+(1+next*.006)*w,root=.44*hw*sy,len=2.60*hw*sy/5;
+ H.x[0]=0;H.y[0]=root;for(let j=0;j<5;j++){H.x[j+1]=H.x[j]-Math.sin(H.a[j])*len;H.y[j+1]=H.y[j]+Math.cos(H.a[j])*len;}
+ const A=b.geo.morphAttributes.position[st].array,B=b.geo.morphAttributes.position[next].array,NA=b.geo.morphAttributes.normal[st].array,NB=b.geo.morphAttributes.normal[next].array,P=g.attributes.position.array,N=g.attributes.normal.array;
+ for(let i=0;i<P.length;i+=3){const x=A[i]*(1-w)+B[i]*w,y=A[i+1]*(1-w)+B[i+1]*w,z=A[i+2]*(1-w)+B[i+2]*w;let nx=NA[i]*(1-w)+NB[i]*w,ny=NA[i+1]*(1-w)+NB[i+1]*w,nz=NA[i+2]*(1-w)+NB[i+2]*w;
+  if(y<=root){P[i]=x;P[i+1]=y;P[i+2]=z;N[i]=nx;N[i+1]=ny;N[i+2]=nz;continue;}
+  const u=Math.min(4.99999,(y-root)/len),j=Math.floor(u),f=u-j,a=H.a[j],c=Math.cos(a),s=Math.sin(a);
+  P[i]=H.x[j]-s*f*len+x*c;P[i+1]=H.y[j]+c*f*len+x*s;P[i+2]=z;
+  N[i]=nx*c-ny*s;N[i+1]=nx*s+ny*c;N[i+2]=nz;
+ }
+ g.attributes.position.needsUpdate=true;g.attributes.normal.needsUpdate=true;
+}
+
 export class DogVisual {
   // Set by the renderer every frame: drawing-buffer size, device px per world unit, DPR.
   static view = { res: new THREE.Vector2(1, 1), pxPerUnit: 1, dpr: 1 };
@@ -257,6 +276,7 @@ export class DogVisual {
     for (const slot of Object.keys(this.items)) {
       if (worn[slot]?.id === this.items[slot].id) continue;
       this.items[slot].hood?.removeFromParent();
+      if(this.items[slot].b.dynamicHair) this.items[slot].mesh.geometry.dispose();
       this.items[slot].mesh.removeFromParent(); delete this.items[slot];
     }
     this.palette = null; this.boots = null; this.trail = null;
@@ -270,7 +290,10 @@ export class DogVisual {
       if (this.items[slot]) continue;
       const b = buildLook(it.id, it.look);
       if (!b) continue; // unknown look: owned, just not drawn
-      const mesh = new THREE.Mesh(b.geo, itemMaterial());
+      const itemGeo=b.dynamicHair?b.geo.clone():b.geo;
+      if(b.dynamicHair){itemGeo.morphAttributes={};itemGeo.attributes.position.setUsage(THREE.DynamicDrawUsage);itemGeo.attributes.normal.setUsage(THREE.DynamicDrawUsage);}
+      const mesh = new THREE.Mesh(itemGeo, itemMaterial());
+      if(b.headMorph) mesh.morphTargetInfluences=this.headMesh.morphTargetInfluences;
       if (b.mount === 'skin') { // garment: rides on the body mesh and shares its morph weights
         mesh.morphTargetInfluences = this.bodyMesh.morphTargetInfluences;
         this.bodyMesh.add(mesh);
@@ -306,6 +329,7 @@ export class DogVisual {
   hipOf(a0, a1, w) { return a0.hip.map((v, i) => lerp(v, a1.hip[i], w)); }
 
   dispose() {
+    for(const it of Object.values(this.items))if(it.b.dynamicHair)it.mesh.geometry.dispose();
     this.root.removeFromParent();
     for (const m of [this.mat, this.bodyMat, this.earMat, this.pawMat, this.lineMat, this.lineMatR, this.mouth.material]) m.dispose();
     this.crown.traverse((o) => o.geometry?.dispose()); // each dog builds its own crown
@@ -334,6 +358,7 @@ export class DogVisual {
     this.earMat.color.set(C0.ear).lerp(this.color2.set(C1.ear), cu);
     this.pawMat.color.copy(this.mat.color).lerp(this.mat.userData.patch.value, SOCKS[cu < 0.5 ? st : next] ? 1 : 0.6);
     this.bodyMat.color.copy(this.mat.color); this.bodyMat.userData.patch.value.copy(this.mat.userData.patch.value);
+    for(const m of [this.mat,this.bodyMat,this.earMat]){m.userData.tips.on.value=pal?.tips?1:0;if(pal?.tips)m.userData.tips.color.value.set(pal.tips);}
     const sp = this.bodyMat.userData.spots, ps = pal?.spots;
     sp.on.value = ps ? 1 : 0;
     if (ps) { sp.a.value.copy(ps[0]); sp.b.value.copy(ps[1]); }
@@ -474,6 +499,8 @@ export class DogVisual {
     this.mounts.back.position.set(-P.bl * 0.05, P.bw * 0.5, 0);
     for (const slot in this.items) {
       const { mesh, b } = this.items[slot];
+      if(b.dynamicHair)hxHairUpdate(this.items[slot],st,next,w,v/(CONFIG.dog.baseSpeed*Math.pow(s/CONFIG.dog.baseRadius,CONFIG.dog.speedExp)),dt);
+      if(b.bobber){const q=.5+.5*Math.sin(t*(4+5*Math.min(1,norm)));mesh.morphTargetInfluences[0]=1-q;mesh.morphTargetInfluences[1]=q;}
       if (!b.place) continue;
       const [p, r, k] = b.place(P);
       mesh.position.set(p[0], p[1], p[2]); mesh.rotation.set(r[0], r[1], r[2]); mesh.scale.setScalar(k);
@@ -684,7 +711,7 @@ export class DogVisual {
     const fx = DogVisual.fx, dashing = d.dashT > 0, vl = Math.hypot(d.vx, d.vy);
     if (fx && vl > 1) {
       fxDir.set(d.vx / vl, 0, d.vy / vl); fxPos.set(x, 0, y);
-      if (dashing && !this.wasDash) fx.dashBurst(fxPos, fxDir, s, (P.sh + P.bw * 0.45) * s);
+      if (dashing && !this.wasDash) { fx.dashBurst(fxPos, fxDir, s, (P.sh + P.bw * 0.45) * s); if(this.trail==='lightning')fx.electricStart(fxPos,fxDir,s); }
       if (dashing) {
         this.windAcc = (this.windAcc ?? 0) + dt * 15; // sparse: a few clear streaks, not a blur
         const n = Math.floor(this.windAcc); this.windAcc -= n;
@@ -696,6 +723,7 @@ export class DogVisual {
         }
       }
     }
+    if(fx&&(this.trail==='gum'||this.hadGum)){fxPos.set(x,0,y);fxDir.set(vl>1?d.vx/vl:1,0,vl>1?d.vy/vl:0);fx.elastic(this,fxPos,fxDir,s,dashing&&this.trail==='gum',dt);this.hadGum=true;}
     this.wasDash = dashing;
   }
 }

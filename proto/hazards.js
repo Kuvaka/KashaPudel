@@ -93,7 +93,7 @@ function puddleMaterial(L = WATER) {
   return new THREE.ShaderMaterial({
     transparent: true, depthWrite: false,
     uniforms: {
-      uTime: { value: 0 }, uGlint: { value: L.glint },
+      uCity:{value:0},uTime: { value: 0 }, uGlint: { value: L.glint },
       cDeep: { value: new THREE.Color(L.deep) }, cLight: { value: new THREE.Color(L.light) },
       cMud: { value: new THREE.Color(L.rim) },
     },
@@ -105,7 +105,7 @@ function puddleMaterial(L = WATER) {
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }`,
     fragmentShader: `
-      uniform float uTime, uGlint; uniform vec3 cDeep, cLight, cMud;
+      uniform float uTime, uGlint,uCity; uniform vec3 cDeep, cLight, cMud;
       varying float vEdge; varying vec2 vLocal; varying vec2 vW;
       void main() {
         // Water: lighter towards the edge, two sky glints, slow ripples.
@@ -115,6 +115,7 @@ function puddleMaterial(L = WATER) {
         vec2 g = vLocal - vec2(-0.25, -0.3);
         c = mix(c, vec3(1.0), (1.0 - smoothstep(0.08, 0.12, length(g * vec2(1.0, 2.2)))) * 0.85 * uGlint);
         c = mix(c, vec3(1.0), (1.0 - smoothstep(0.04, 0.06, length((vLocal - vec2(0.05, -0.42)) * vec2(1.0, 2.2)))) * 0.7 * uGlint);
+        if(uCity>0.5){float stripe=(1.0-smoothstep(.03,.11,abs(sin(vLocal.x*13.0+sin(vLocal.y*18.0+uTime)*.10))))*(1.0-smoothstep(.15,.75,abs(vLocal.y)));c=mix(c,vec3(.84,.60,.28),stripe*.40);}
         // Dark line at the water's edge, then a soft wet-mud rim fading into the grass.
         float line = smoothstep(0.93, 0.99, vEdge) * (1.0 - smoothstep(1.0, 1.04, vEdge));
         c = mix(c, vec3(0.2, 0.32, 0.4), line * 0.6);
@@ -164,6 +165,7 @@ export function buildHazards(scene) {
   return {
     lineMats: [lineN, driftLine],
     update(game, t, dt = 0) {
+      const city=game.season==='yorknew';pudMat.uniforms.uCity.value=city?1:0;pudMat.uniforms.cDeep.value.set(city?'#6c7c93':WATER.deep);pudMat.uniforms.cLight.value.set(city?'#b5b8bb':WATER.light);pudMat.uniforms.cMud.value.set(city?'#858999':WATER.rim);
       if (game.puddles !== pudOf) { pudOf = game.puddles; pudMesh = flat(pudMesh, pudOf ?? [], pudMat); }
       const muds = (game.obstacles ?? []).filter((o) => o.kind === 'mud');
       const mudKey = muds.length ? game.season : null;

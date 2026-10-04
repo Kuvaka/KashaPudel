@@ -74,7 +74,7 @@ const game = new Game({
   onCountdown(n) {
     showCountdown(n ? String(n) : 'Вперёд!');
     sfx.beep(!n);
-    if (!n) { music.start(); sfx.bark(sizeOf(game.player), 0.5, 0, 2); }
+    if (!n) { music.start(game.season); sfx.bark(sizeOf(game.player), 0.5, 0, 2); }
   },
   onPoop(d, p) {
     if (screen !== null) return;

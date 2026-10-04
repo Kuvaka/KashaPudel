@@ -210,10 +210,67 @@ function kick(t) {
   o.start(t); o.stop(t + 0.16);
 }
 
+// Original composition "Утро экспедиции". 16 bars, D major, A/A'/B/B'.
+// Each row: bass MIDI, arpeggio chord MIDI, eight lead eighth notes (null = rest).
+export const HX_SCORE=[
+ [38,[62,66,69],[74,78,81,78,76,74,69,73]],
+ [45,[61,64,69],[76,null,73,76,81,80,76,73]],
+ [47,[62,66,71],[74,78,83,81,78,74,76,78]],
+ [43,[62,67,71],[79,78,74,71,74,78,76,null]],
+ [40,[64,67,71],[76,79,83,79,78,76,71,74]],
+ [45,[61,64,69],[73,76,81,83,81,76,73,null]],
+ [43,[62,67,71],[74,79,78,74,71,74,78,79]],
+ [45,[61,64,69],[81,76,73,69,73,76,78,81]],
+ [38,[62,66,69],[78,81,86,null,85,81,78,76]],
+ [43,[62,67,71],[79,83,86,83,81,79,78,74]],
+ [47,[62,66,71],[78,83,85,86,85,83,81,78]],
+ [45,[61,64,69],[81,85,88,null,86,85,81,76]],
+ [40,[64,67,71],[83,79,76,79,83,86,83,79]],
+ [43,[62,67,71],[86,83,79,78,79,83,81,79]],
+ [45,[61,64,69],[85,81,76,73,76,81,83,85]],
+ [38,[62,66,69],[86,null,81,78,74,null,69,73]],
+];
+export const SONGS={
+ whale:{bpm:156,duty:.25,bass:'triangle',transpose:0,score:HX_SCORE},
+ yorknew:{bpm:152,duty:.50,bass:'sawtooth',transpose:-2,score:HX_SCORE},
+ greed:{bpm:160,duty:.25,bass:'triangle',transpose:2,score:HX_SCORE},
+};
+const hxWaves=new WeakMap(),hxNoise=new WeakMap();
+function hxPulse(ctx,duty){let bank=hxWaves.get(ctx);if(!bank)hxWaves.set(ctx,bank=new Map());if(bank.has(duty))return bank.get(duty);const re=new Float32Array(65),im=new Float32Array(65);for(let n=1;n<65;n++){re[n]=2*Math.sin(2*Math.PI*n*duty)/(n*Math.PI);im[n]=2*(1-Math.cos(2*Math.PI*n*duty))/(n*Math.PI);}const w=ctx.createPeriodicWave(re,im);bank.set(duty,w);return w;}
+function hxNoiseBuffer(ctx){let b=hxNoise.get(ctx);if(b)return b;b=ctx.createBuffer(1,ctx.sampleRate,ctx.sampleRate);const a=b.getChannelData(0);let z=39127;for(let i=0;i<a.length;i++){z=(Math.imul(z,1664525)+1013904223)>>>0;a[i]=z/2147483648-1;}hxNoise.set(ctx,b);return b;}
+function hxTone(ctx,out,m,t,dur,voice,vol,duty=.5,vibrato=false){
+ const o=ctx.createOscillator(),g=ctx.createGain();if(voice==='pulse')o.setPeriodicWave(hxPulse(ctx,duty));else o.type=voice;
+ o.frequency.setValueAtTime(mtof(m),t);g.gain.setValueAtTime(.0001,t);g.gain.linearRampToValueAtTime(vol,t+.002);g.gain.setValueAtTime(vol*.8,t+dur*.70);g.gain.exponentialRampToValueAtTime(.0001,t+dur);
+ let lfo=null,depth=null;if(vibrato){lfo=ctx.createOscillator();depth=ctx.createGain();lfo.type='triangle';lfo.frequency.value=7.5;depth.gain.setValueAtTime(0,t);depth.gain.linearRampToValueAtTime(15,t+.045);lfo.connect(depth).connect(o.detune);lfo.start(t);lfo.stop(t+dur+.01);}
+ o.connect(g).connect(out);o.start(t);o.stop(t+dur+.01);o.onended=()=>{o.disconnect();g.disconnect();lfo?.disconnect();depth?.disconnect();};
+}
+function hxDrum(ctx,out,t,kind,step){
+ const s=ctx.createBufferSource(),f=ctx.createBiquadFilter(),g=ctx.createGain();s.buffer=hxNoiseBuffer(ctx);
+ const dur=kind==='kick'?.12:kind==='snare'?.085:.025;
+ f.type=kind==='hat'?'highpass':'bandpass';f.Q.value=kind==='kick'?2.2:.7;
+ f.frequency.setValueAtTime(kind==='kick'?190:kind==='snare'?2100:7200,t);
+ if(kind==='kick')f.frequency.exponentialRampToValueAtTime(55,t+dur);
+ env(g,t,kind==='kick'?.34:kind==='snare'?.17:.047,dur,.001);
+ s.connect(f).connect(g).connect(out);s.start(t,(step*7919%31000)/48000);s.stop(t+dur+.01);s.onended=()=>{s.disconnect();f.disconnect();g.disconnect();};
+}
+// Pure scheduler shared by live playback and OfflineAudioContext WAV validation.
+export function scheduleChipStep(ctx,out,song,step,t){
+ const e=60/song.bpm/2,s=step%8,[root,chord,mel]=song.score[Math.floor(step/8)%song.score.length],tr=song.transpose;
+ hxTone(ctx,out,root+(s%4===3?7:0)+tr,t,e*.62,song.bass,.115);
+ for(let j=0;j<2;j++){const n=(step*2+j)%4,m=chord[[0,1,2,1][n]]+(n===3?12:0);hxTone(ctx,out,m+tr,t+j*e/2,e*.39,'square',.024);}
+ const m=mel[s];if(m!==null){const hold=s<7&&mel[s+1]===null?1.82:.88;hxTone(ctx,out,m+tr,t,e*hold,'pulse',.075,song.duty,true);}
+ if(s===0||s===4||s===7&&Math.floor(step/8)%4===3)hxDrum(ctx,out,t,'kick',step);
+ if(s===2||s===6)hxDrum(ctx,out,t,'snare',step);
+ hxDrum(ctx,out,t,'hat',step);if(s%2===1)hxDrum(ctx,out,t+e/2,'hat',step+1);
+}
+
+let activeSong=null;
 let musicTimer = 0, step = 0, nextT = 0;
 function schedule() {
   if (!ac) return;
+  if(nextT<ac.currentTime-.25)nextT=ac.currentTime+.02;
   while (nextT < ac.currentTime + 0.25) {
+    if(activeSong){if(live())scheduleChipStep(ac,musicBus,activeSong,step,nextT);step++;nextT+=60/activeSong.bpm/2;continue;}
     const bar = SONG[Math.floor(step / 8) % SONG.length], s = step % 8, t = nextT;
     const [root, chord, mel] = bar;
     if (!live()) { step++; nextT += EIGHTH; continue; } // muted: keep time, make no nodes
@@ -232,9 +289,11 @@ function schedule() {
 }
 
 export const music = {
-  start() {
+  start(id) {
     if (!ac) return;
     this.stop(0);
+    musicBus.disconnect();musicBus=ac.createGain();musicBus.connect(master);
+    activeSong=SONGS[id]??null;
     musicBus.gain.cancelScheduledValues(ac.currentTime);
     musicBus.gain.setValueAtTime(MUSIC_VOL, ac.currentTime);
     step = 0; nextT = ac.currentTime + 0.05;

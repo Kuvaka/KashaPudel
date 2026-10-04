@@ -34,7 +34,7 @@ function valueNoise(seed) {
 // The field is [0, W] x [0, H]; the camera looks "north" (towards -z). Pond and large props are
 // beyond the fence so no dog ever walks through them.
 function layout(W, H, theme) {
-  const pond = { x: W + 230, z: -170, r: 190 };
+  const pond = ['whale','yorknew','greed'].includes(theme)?{x:W+9000,z:-9000,r:0}:{ x: W + 230, z: -170, r: 190 };
   // Two soft decorative paths (flat, walkable): an arc through the south-west corner and a
   // meandering one across the north-east towards the pond.
   const path = (x, z) => {
@@ -106,7 +106,7 @@ function groundMaterial(W, H, M, S) {
       cClear: { value: col(G.clear) },
       cPath: { value: col(G.path) }, cPathEdge: { value: col(G.pathEdge) },
       cWater: { value: col(G.water) }, cWaterLight: { value: col(G.waterLight) }, cShore: { value: col(G.shore) },
-      uPaving: { value: S.paved ? 1 : 0 }, uIce: { value: S.ice ? 1 : 0 }, uDetailK: { value: G.detail ?? 0.08 },
+      uAdventure:{value:S.hxh??0}, uPaving: { value: S.paved ? 1 : 0 }, uIce: { value: S.ice ? 1 : 0 }, uDetailK: { value: G.detail ?? 0.08 },
     },
     vertexShader: `
       varying vec2 vW;
@@ -117,7 +117,7 @@ function groundMaterial(W, H, M, S) {
       }`,
     fragmentShader: `
       uniform sampler2D uMap, uDetail;
-      uniform float uX0, uSpan, uTime, uIce, uDetailK, uPaving;
+      uniform float uX0, uSpan, uTime, uIce, uDetailK, uPaving, uAdventure;
       uniform vec2 uField;
       uniform vec3 cClear, cDark, cMid, cLight, cPath, cPathEdge, cWater, cWaterLight, cShore;
       varying vec2 vW;
@@ -177,6 +177,34 @@ function groundMaterial(W, H, M, S) {
           float fenceShade = 1.0 - smoothstep(0.0, 70.0, min(in2.x, in2.y));
           paving *= 1.0 - 0.14 * fenceShade * (1.0 - outside);
           c = paving * (1.0 - 0.025 * smoothstep(0.45, 0.65, cl));
+        }
+
+        // HxH landmarks continue through the centre as flat, low-contrast paint.
+        if(uAdventure>0.5){
+          vec2 q=vW-uField*.5;
+          if(uAdventure<1.5){
+            float lane=abs(q.y-80.0*sin(q.x*.004));
+            c=mix(c,cPath,(1.0-smoothstep(36.0,43.0,lane))*.9);
+            float r=length(q);float wave=abs(sin(q.x*.020)+q.y/35.0);
+            c=mix(c,cPath,(1.0-smoothstep(.12,.24,wave))*(1.0-smoothstep(210.0,240.0,abs(q.x)))*.65);
+            float ring=1.0-smoothstep(3.0,7.0,abs(r-280.0));c=mix(c,cPath,ring*.5);
+          }else if(uAdventure<2.5){
+            vec2 tile=fract(vec2(vW.x/52.0+mod(floor(vW.y/34.0),2.0)*.5,vW.y/34.0));
+            float grout=1.0-smoothstep(.02,.055,min(min(tile.x,1.0-tile.x),min(tile.y,1.0-tile.y)));
+            c=mix(cMid,cLight,.4)-grout*.018;
+            float lane=min(abs(q.x),abs(q.y));float bands=step(.48,fract((q.x+q.y)/75.0));
+            c=mix(c,cPath,(1.0-smoothstep(46.0,52.0,lane))*(.30+.40*bands));
+            float dia=abs(q.x)+abs(q.y);c=mix(c,cPathEdge,(1.0-smoothstep(3.0,7.0,abs(dia-205.0)))*.70);
+          }else{
+            float check=mod(floor(vW.x/64.0)+floor(vW.y/64.0),2.0);
+            c=mix(cMid,cLight,.25+.18*check);
+            vec2 cell=mod(q+vec2(165.0,220.0),vec2(330.0,440.0))-vec2(165.0,220.0);
+            float card=max(abs(cell.x)/112.0,abs(cell.y)/164.0);
+            float edge=1.0-smoothstep(.98,1.01,card),fill=1.0-smoothstep(.92,.95,card);
+            c=mix(c,cPathEdge,edge*.52);c=mix(c,cPath,fill*.55);
+            float diamond=abs(cell.x)/30.0+abs(cell.y)/43.0;
+            c=mix(c,cPathEdge,(1.0-smoothstep(.95,1.02,diamond))*.28);
+          }
         }
 
         // Pond: grass rim, water, light ripples.
@@ -684,6 +712,11 @@ Object.assign(SEASONS, {
   hemi:['#fff8ec','#899572',2.3],sun:['#fff2d8',2.05,[-.45,1.2,.6]],
  },
 });
+Object.assign(SEASONS,{
+ whale:{...SEASONS.summer,hxh:1,sky:'#a7dbe2',ground:{...SEASONS.summer.ground,dark:'#77a85e',mid:'#81b86a',light:'#91c579',path:'#e1cfa1',pathEdge:'#bbaa83'},tufts:.65,flowers:.3,blossoms:.25,fence:'#ac9870'},
+ yorknew:{...SEASONS.kyoto,hxh:2,paved:false,groundPetals:0,architecture:null,sky:'#33415f',ground:{...SEASONS.kyoto.ground,dark:'#8895a7',mid:'#919dac',light:'#9da8b6',clear:'#a5afbd',path:'#c2b5a0',pathEdge:'#58647d'},fence:'#5b6473',hemi:['#e5edff','#737e97',2.05],sun:['#ffe2b3',1.5,[-.4,.9,.6]]},
+ greed:{...SEASONS.summer,hxh:3,sky:'#b6c8e1',ground:{...SEASONS.summer.ground,dark:'#80a58a',mid:'#8eb499',light:'#aac6a4',path:'#eee2bc',pathEdge:'#8c7f9a'},tufts:.18,flowers:0,blossoms:0,fence:'#858a9a',crown:['#72a391'],far:['#9dafb7']},
+});
 // Reuse light objects in both scenes; unknown IDs restore the original summer rig.
 export function applyMapLight(hemi,sun,id){
  const S=SEASONS[id]??SEASONS.summer,h=S.hemi??['#fff6e6','#7a9a50',2.3],d=S.sun??['#fff0d0',2,[-.5,1,.7]];
@@ -741,7 +774,44 @@ function cypressGeometry(){
  for(const [y,w,h]of [[.65,.25,.48],[1.05,.25,.55],[1.44,.20,.45],[1.73,.12,.30]])p.push(travelPart(new THREE.SphereGeometry(1,10,7),'#416c54',[0,y,0],[w,h,w*.85]));
  return travelMerge(p);
 }
+// Tall scenery stays outside three edges; the south is clear at the low race camera.
+function buildHxhDecor(root,S,W,H,lineMat){
+ const PI=Math.PI,parts=[],shadows=[],white=new THREE.Color('#ffffff');
+ const add=(g,x,z,k=1,yaw=0)=>{g.scale(k,k,k);g.rotateY(yaw);g.translate(x,0,z);parts.push(g);shadows.push({x,z,r:80*k,m:place(x,.03,z,0,80*k,1,65*k),c:white});};
+ const b=(c,p,s)=>travelBox(c,p,s);
+ function roof(w,d,h,c){return travelPart(new THREE.ConeGeometry(1,1,4),c,[0,h,0],[w,.45*w,d]);}
+ function lighthouse(){const p=[travelPart(new THREE.CylinderGeometry(.40,.61,3.15,16),'#efe8d0',[0,1.57,0]),travelPart(new THREE.CylinderGeometry(.425,.44,.30,16),'#b7564f',[0,2.34,0]),b('#476c80',[0,3.25,0],[.76,.55,.76]),b('#ffe1a4',[0,3.26,.394],[.52,.34,.022]),travelPart(new THREE.ConeGeometry(.68,.55,16),'#b9554e',[0,3.78,0]),b('#567b87',[0,.28,.56],[.29,.56,.07])];return travelMerge(p);}
+ function house(){const p=[b('#e5d5ae',[0,.52,0],[1.45,1.04,.95]),roof(1.2,.85,1.29,'#b65348'),b('#526b68',[0,.30,.50],[.28,.6,.06])];for(const x of [-.48,.48])p.push(b('#a9d9df',[x,.61,.50],[.31,.36,.06]));return travelMerge(p);}
+ function tower(n){const p=[b(n%2?'#59647a':'#69738a',[0,2.10,0],[1.23,4.20,.94]),b('#35445f',[0,4.24,0],[1.39,.16,1.08])];for(let j=0;j<6;j++){p.push(b('#46516c',[0,.50+j*.61,0],[1.3,.065,1.01]));for(const x of [-.37,0,.37])for(const z of [-.49,.49]){p.push(b('#e4be83',[x,.76+j*.61,z],[.21,.33,.035]));p.push(b('#455169',[x,.76+j*.61,z*1.05],[.025,.35,.025]));}}p.push(b('#253b54',[0,.25,.50],[.33,.48,.04]));p.push(b('#d5bd96',[.55,1.12,.53],[.30,.73,.06]),b('#574567',[.55,1.12,.57],[.19,.16,.024]));return travelMerge(p);}
+ function card(n){const p=[b('#526c68',[0,.82,0],[1.12,1.64,.12]),b('#f4edcc',[0,.82,.072],[.97,1.48,.027]),b('#aa94ba',[0,.82,.097],[.67,.89,.027]),travelPart(new THREE.OctahedronGeometry(.32),'#67bca7',[0,.82,.17],[.75,1,.25])];const segments=[[0,.16,.13,.023],[.075,.08,.023,.13],[.075,-.08,.023,.13],[0,-.16,.13,.023],[-.075,-.08,.023,.13],[-.075,.08,.023,.13],[0,0,.13,.023]],digits=[[0,1,2,3,4,5],[1,2],[0,1,6,4,3],[0,1,6,2,3],[5,6,1,2],[0,5,6,2,3],[0,5,6,4,3,2],[0,1,2],[0,1,2,3,4,5,6],[0,1,2,3,5,6]];for(const d of digits[n%10]){const[x,y,w,h]=segments[d];p.push(b('#405b64',[-.32+x,1.38+y,.102],[w,h,.015]));}return travelMerge(p);}
+ function crystal(){const p=[];for(const [x,y,z,k,c]of [[0,.5,0,1,'#b8a0d9'],[.35,.28,.15,.6,'#83c7ba'],[-.24,.20,.12,.45,'#779fc8']])p.push(travelPart(new THREE.OctahedronGeometry(1),c,[x,y,z],[.29*k,.78*k,.30*k]));return travelMerge(p);}
+ function castle(){const p=[b('#dfd9c4',[0,.52,0],[2.2,1.04,.8])];for(const x of [-1,0,1]){p.push(travelPart(new THREE.CylinderGeometry(.28,.32,1.8,10),'#ddd2c6',[x,.90,0]));p.push(travelPart(new THREE.ConeGeometry(.43,.74,10),'#817cba',[x,2.14,0]));p.push(b('#a1c6d3',[x,1.14,.31],[.13,.29,.035]));}p.push(b('#717992',[0,.31,.43],[.40,.62,.05]));return travelMerge(p);}
+ if(S.id==='whale'){
+  add(lighthouse(),W*.69,-82,75);add(house(),W*.31,-90,100);
+  // Distinctive big leaves form only a low western border; no trees in the sea.
+  for(let i=0;i<12;i++){const p=[];for(let j=0;j<4;j++)p.push(travelPart(new THREE.SphereGeometry(1,10,6),'#4d965f',[Math.cos(j*1.6)*.23,.40,Math.sin(j*1.6)*.23],[.20,.10,.60],j*.8));add(travelMerge(p),-70,110+i*(H-220)/11,80);}
+ }else if(S.id==='yorknew'){
+  for(let i=0;i<13;i++)add(tower(i),70+i*(W-140)/12,-175,75+(i%3)*9);
+  for(let i=0;i<9;i++){add(tower(i),-170,80+i*(H-160)/8,80,PI/2);add(tower(i+1),W+170,80+i*(H-160)/8,80,-PI/2);}
+ }else{
+  for(let i=0;i<9;i++){add(card(i),120+i*(W-240)/8,-80,82+(i%3)*7,.12*Math.sin(i));if(i%2===0)add(crystal(),220+i*(W-400)/9,-76,85);}
+  for(let i=0;i<8;i++){add(card(i+2),-90,100+i*(H-200)/7,85,PI/2);add(crystal(),W+90,100+i*(H-200)/7,95);}
+  add(castle(),W*.5,-330,125);
+ }
+ const mat=toonMaterial('#ffffff');mat.vertexColors=true;
+ const clock={value:0};if(S.id==='yorknew')mat.onBeforeCompile=shader=>{shader.uniforms.hxClock=clock;shader.fragmentShader='uniform float hxClock;\n'+shader.fragmentShader;shader.fragmentShader=shader.fragmentShader.replace('#include <color_fragment>','#include <color_fragment>\n if(vColor.r>0.65 && vColor.g>0.40 && vColor.b<0.4) diffuseColor.rgb *= 0.94+0.06*sin(hxClock*1.6+gl_FragCoord.x*.013);');};
+ const sc=new Scatter(root,travelMerge(parts),mat,[{x:W/2,z:H/2,r:Math.max(W,H),m:new THREE.Matrix4(),c:white}],lineMat);
+ let sea=null;
+ if(S.id==='whale'){
+  const g=new THREE.BufferGeometry(),p=[-900,0,-900,W+900,0,-900,W+900,0,-125,-900,0,-900,W+900,0,-125,-900,0,-125,W+125,0,-125,W+900,0,-125,W+900,0,H+900,W+125,0,-125,W+900,0,H+900,W+125,0,H+900];g.setAttribute('position',new THREE.Float32BufferAttribute(p,3));
+  sea=new THREE.ShaderMaterial({side:THREE.DoubleSide,uniforms:{uTime:clock,c:{value:new THREE.Color('#55adc5')},light:{value:new THREE.Color('#b4e9e6')}},vertexShader:'varying vec2 w;void main(){w=position.xz;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',fragmentShader:'uniform float uTime;uniform vec3 c,light;varying vec2 w;void main(){float wave=sin(w.y*.025+sin(w.x*.011)*1.4+uTime*.8);float glint=smoothstep(.91,.99,wave)*smoothstep(.1,.8,sin(w.x*.03+uTime*.3));gl_FragColor=vec4(mix(c,light,glint*.60),1.0);\n#include <colorspace_fragment>\n}'});
+  const water=new THREE.Mesh(g,sea);water.position.y=.12;water.renderOrder=-1;root.add(water);
+ }
+ return {scatters:[sc],shadows:[],update:t=>{clock.value=t;}};
+}
+
 function buildTravelDecor(root,S,W,H,lineMat){
+ if(S.hxh)return buildHxhDecor(root,S,W,H,lineMat);
  if(!S.architecture)return {scatters:[],shadows:[]};
  const jp=S.architecture==='kyoto',houses=[],props=[],shadows=[],white=new THREE.Color('#ffffff');
  const add=(list,x,z,yaw,s,sx=1)=>list.push({x,z,r:s*1.3,m:place(x,0,z,yaw,s*sx,s,s),c:white});
@@ -776,8 +846,8 @@ export function buildMeadow(scene, W, H, season = 'summer') {
   const inField = (x, z, pad = 0) => x > pad && x < W - pad && z > pad && z < H - pad;
   const puds = [...mapPuddles(S.id), ...seasonObstacles(S.id)];
   const wet = (x, z, pad) => puds.some((p) => Math.hypot(x - p.x, z - p.y) < p.r * 1.3 + pad);
-  const onPath = (x, z, pad) => L.path(x, z) < L.pathHalf + pad || (puds.length > 0 && wet(x, z, pad));
-  const inPond = (x, z, pad) => Math.hypot(x - L.pond.x, (z - L.pond.z) * 1.25) < L.pond.r + pad;
+  const onPath = (x, z, pad) => S.id==='yorknew' || L.path(x, z) < L.pathHalf + pad || (puds.length > 0 && wet(x, z, pad));
+  const inPond = (x, z, pad) => S.id==='whale'&&(x>W+100-pad||z<-110+pad) || Math.hypot(x - L.pond.x, (z - L.pond.z) * 1.25) < L.pond.r + pad;
 
   scene.background = new THREE.Color(S.sky);
   const lineMats = [], lineR = outlineMaterial(true), lineN = outlineMaterial(false);
@@ -832,7 +902,7 @@ export function buildMeadow(scene, W, H, season = 'summer') {
   const addLeaf = (x, z, s) => leaves.push({ x, z, r: s, m: place(x, 0.5, z, r() * TAU, s), c: C(leafCols) });
   for (let i = 0; i < 70; i++) {
     const x = 60 + r() * (W - 120), z = 60 + r() * (H - 120);
-    if (S.id !== 'kyoto' && !onPath(x, z, 16)) addLeaf(x, z, 13 + r() * 8);
+    if (S.id !== 'kyoto' && S.id !== 'yorknew' && S.id !== 'greed' && !onPath(x, z, 16)) addLeaf(x, z, 13 + r() * 8);
   }
 
   // Stones and mushrooms: mostly along the fence and beyond it.
@@ -851,7 +921,7 @@ export function buildMeadow(scene, W, H, season = 'summer') {
     const s = 6 + r() * 10, g = 0.4 + r() * 0.08; // no outline: darker, warm grey, so they sit in the grass
     stones.push({ x, z, r: s * 1.3, m: place(x, s * 0.2, z, r() * TAU, s * (1 + r() * 0.4), s * 0.6, s), c: new THREE.Color(g, g * 0.98, g * 0.9).lerp(S.stoneTint, S.stoneMix) });
   }
-  for (let i = 0; i < (S.id === 'kyoto' ? 0 : 14); i++) { // a few pebbles inside the field
+  for (let i = 0; i < ((S.id === 'kyoto'||S.id === 'yorknew'||S.id === 'greed') ? 0 : 14); i++) { // a few pebbles inside the field
     const x = 100 + r() * (W - 200), z = 100 + r() * (H - 200);
     if (onPath(x, z, 14)) continue;
     const s = 5 + r() * 4, g = 0.42 + r() * 0.06;
@@ -873,7 +943,7 @@ export function buildMeadow(scene, W, H, season = 'summer') {
   const mushS = new Scatter(root, mushroomGeometry(), mushMat, mush);
 
   // Fence: one merged mesh + its hull.
-  const lanterns = S.id === 'kyoto';
+  const lanterns = S.id === 'kyoto'||S.id === 'yorknew';
   const fenceMat = toonMaterial(lanterns ? '#ffffff' : S.fence); fenceMat.vertexColors = true;
   const fenceGeo = fenceGeometry(W, H, lanterns, lanterns ? S.fence : '#ffffff');
   const fence = new THREE.Mesh(fenceGeo, fenceMat); root.add(fence);
@@ -900,7 +970,7 @@ export function buildMeadow(scene, W, H, season = 'summer') {
     if (u < W) return [u, -d]; if (u < W + H) return [W + d, u - W];
     if (u < 2 * W + H) return [2 * W + H - u, H + d]; return [-d, perim - u];
   };
-  for (let u = 0; u < (S.id === 'kyoto' ? 0 : perim);) {
+  for (let u = 0; u < ((S.id === 'kyoto'||S.id === 'yorknew'||S.id === 'greed') ? 0 : perim);) {
     const n = 3 + Math.floor(r() * 3);
     for (let k = 0; k < n; k++, u += 34 + r() * 18) {
       const [x, z] = along(u, 40 + r() * 45);
@@ -920,7 +990,7 @@ export function buildMeadow(scene, W, H, season = 'summer') {
   const bushS = new Scatter(root, cloudGeometry(BUSH_PUFFS, 8), bushMat, bushes);
 
   const trees = [], trunks = [], crownCols = S.crown;
-  ring(150, S.id === 'kyoto' ? 0 : S.id === 'italy' ? 24 : 70, (x, z) => {
+  ring(150, (S.id === 'kyoto'||S.id === 'yorknew'||S.id === 'greed') ? 0 : S.id === 'italy' ? 24 : 70, (x, z) => {
     if (z > H) z += 90; // south trees stand further out: they lean into the view
     const s = 50 + r() * 26, h = s * (0.8 + r() * 0.7); // crowns at different heights
     trees.push({ x, z, r: s * 1.3, m: place(x, h + s * 0.55, z, r() * TAU, s, s * (S.id === 'italy' ? 0.36 : 0.9), s), c: C(crownCols) });
@@ -928,7 +998,7 @@ export function buildMeadow(scene, W, H, season = 'summer') {
   });
   // Far row: bigger, lighter and less saturated (aerial haze), so the forest recedes.
   const farCols = S.far;
-  ring(330, S.id === 'kyoto' ? 0 : S.id === 'italy' ? 20 : 60, (x, z) => {
+  ring(330, (S.id === 'kyoto'||S.id === 'yorknew'||S.id === 'greed') ? 0 : S.id === 'italy' ? 20 : 60, (x, z) => {
     if (z > H) z += 120;
     const s = 70 + r() * 30, h = s * 1.0;
     trees.push({ x, z, r: s * 1.3, m: place(x, h + s * 0.55, z, r() * TAU, s, s * (S.id === 'italy' ? 0.36 : 0.9), s), c: C(farCols) });
@@ -940,7 +1010,7 @@ export function buildMeadow(scene, W, H, season = 'summer') {
 
   // Lily pads on the pond.
   const lilies = [];
-  for (let i = 0; i < (S.ice ? 0 : 9); i++) { // none on ice
+  for (let i = 0; i < (S.ice||S.hxh ? 0 : 9); i++) { // none on ice
     const a = r() * TAU, d = r() * L.pond.r * 0.7, x = L.pond.x + Math.cos(a) * d, z = L.pond.z + Math.sin(a) * d * 0.8, s = 12 + r() * 9;
     lilies.push({ x, z, r: s, m: place(x, 0.8, z, r() * TAU, s), c: C(S.lily) });
     if (r() < 0.4 * S.flowers) flowers.push({ x, z, r: 6, m: place(x + 3, 1.6, z - 2, r() * TAU, 5), c: new THREE.Color('#ffd0e0') });
@@ -994,7 +1064,7 @@ export function buildMeadow(scene, W, H, season = 'summer') {
     },
     // View: camera centre on the ground and half extents (world units).
     update(t, cx, cz, hx, hz) {
-      swayT.value = t; groundMat.uniforms.uTime.value = t;
+      swayT.value = t; groundMat.uniforms.uTime.value = t; travel.update?.(t);
       // Re-cull when the camera has moved a bit; margin covers the gap.
       const key = `${Math.round(cx / 40)},${Math.round(cz / 40)},${Math.round(hx / 40)},${Math.round(hz / 40)}`;
       if (key === lastCull) return;
