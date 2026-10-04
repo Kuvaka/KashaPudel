@@ -42,7 +42,7 @@ export class Renderer {
 
   resize() {
     this.dpr = Math.min(window.devicePixelRatio || 1, CONFIG.maxDpr);
-    this.vw = window.innerWidth; this.vh = window.innerHeight;
+    [this.vw, this.vh] = viewSize(this.canvas);
     this.canvas.width = Math.round(this.vw * this.dpr);
     this.canvas.height = Math.round(this.vh * this.dpr);
     this.grassPattern = this.ctx.createPattern(this.art.grass, 'repeat');
@@ -299,6 +299,13 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
   ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
   ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+
+// The size the page is really laid out at. A home-screen app on iOS keeps reporting the old
+// innerWidth/innerHeight for a while after a rotation, so trust the full-screen canvas instead.
+export function viewSize(el) {
+  const w = el.clientWidth, h = el.clientHeight;
+  return w > 0 && h > 0 ? [w, h] : [window.innerWidth, window.innerHeight];
 }
 
 // Safe-area insets (iPhone notch / home indicator), read from CSS custom properties.

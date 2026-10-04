@@ -1,7 +1,7 @@
 import { CONFIG } from './config.js';
 import { Game, FINISH_XP } from './game.js';
 import { loadArt } from './art.js';
-import { Renderer, refreshSafeArea } from './render.js';
+import { Renderer, refreshSafeArea, viewSize } from './render.js';
 import { Input } from './input.js';
 import { unlock, sfx, music, isMuted, setMuted } from './audio.js';
 import { Wallet } from './wallet.js';
@@ -322,6 +322,9 @@ renderer.snapCamera(game.player);
 show('start');
 
 function frame(now) {
+  // Rotation: the real size can arrive frames after the resize event (iOS home-screen apps).
+  const [vw, vh] = viewSize(renderer.canvas);
+  if (vw !== renderer.vw || vh !== renderer.vh) onResize();
   if (document.hidden || paused) {
     last = now; acc = 0;
     // Keep the frozen field drawn behind the pause card (a rotation clears the canvas).

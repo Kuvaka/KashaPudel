@@ -4,7 +4,7 @@
 // is flat anyway: names, floating text, sparks, the minimap and the stick.
 import * as THREE from 'three';
 import { CONFIG } from '../src/config.js';
-import { Renderer as Renderer2D } from '../src/render.js';
+import { Renderer as Renderer2D, viewSize } from '../src/render.js';
 import { buildDogAssets } from './dogModel.js';
 import { DogVisual } from './dogVisual.js';
 import { buildMeadow, buildFood } from './meadow.js';
@@ -267,7 +267,7 @@ export class Renderer3D {
 
   resize() {
     this.dpr = Math.min(window.devicePixelRatio || 1, CONFIG.maxDpr);
-    this.vw = window.innerWidth; this.vh = window.innerHeight;
+    [this.vw, this.vh] = viewSize(this.canvas);
     this.canvas.width = Math.round(this.vw * this.dpr);
     this.canvas.height = Math.round(this.vh * this.dpr);
     this.world.resize(this.vw, this.vh);
