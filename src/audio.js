@@ -197,7 +197,7 @@ function note(m, t, dur, type, vol, filt = 0, blip = false) {
   env(g, t, vol, dur, 0.006);
   let src = o;
   if (filt) { const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = filt; o.connect(lp); src = lp; }
-  src.connect(g).connect(musicBus);
+  src.connect(g).connect(musicRun?.bus ?? musicBus);
   o.start(t); o.stop(t + dur + 0.02);
 }
 
@@ -206,7 +206,7 @@ function kick(t) {
   o.frequency.setValueAtTime(160, t);
   o.frequency.exponentialRampToValueAtTime(50, t + 0.12);
   env(g, t, 0.25, 0.14, 0.003);
-  o.connect(g).connect(musicBus);
+  o.connect(g).connect(musicRun?.bus ?? musicBus);
   o.start(t); o.stop(t + 0.16);
 }
 
@@ -230,7 +230,7 @@ export const HX_SCORE=[
  [45,[61,64,69],[85,81,76,73,76,81,83,85]],
  [38,[62,66,69],[86,null,81,78,74,null,69,73]],
 ];
-export const SONGS={
+const HX_SONGS={
  whale:{bpm:156,duty:.25,bass:'triangle',transpose:0,score:HX_SCORE},
  yorknew:{bpm:152,duty:.50,bass:'sawtooth',transpose:-2,score:HX_SCORE},
  greed:{bpm:160,duty:.25,bass:'triangle',transpose:2,score:HX_SCORE},
@@ -264,53 +264,234 @@ export function scheduleChipStep(ctx,out,song,step,t){
  hxDrum(ctx,out,t,'hat',step);if(s%2===1)hxDrum(ctx,out,t+e/2,'hat',step+1);
 }
 
-let activeSong=null;
-let musicTimer = 0, step = 0, nextT = 0;
-function schedule() {
-  if (!ac) return;
-  if(nextT<ac.currentTime-.25)nextT=ac.currentTime+.02;
-  while (nextT < ac.currentTime + 0.25) {
-    if(activeSong){if(live())scheduleChipStep(ac,musicBus,activeSong,step,nextT);step++;nextT+=60/activeSong.bpm/2;continue;}
-    const bar = SONG[Math.floor(step / 8) % SONG.length], s = step % 8, t = nextT;
-    const [root, chord, mel] = bar;
-    if (!live()) { step++; nextT += EIGHTH; continue; } // muted: keep time, make no nodes
-    if (s === 0 || s === 4) { note(s ? root + 7 : root, t, 0.2, 'triangle', 0.32); kick(t); }
-    if (s === 2 || s === 6) for (const m of chord) note(m, t, 0.11, 'square', 0.025, 1800);
-    if (s % 2 === 1) noise(t, 0.03, s === 3 || s === 7 ? 0.05 : 0.03, 8000, 8000, 0.7, 'highpass', musicBus);
-    const m = mel[s];
-    if (m !== null) {
-      let hold = 1;
-      while (s + hold < 8 && mel[s + hold] === null && hold < 2) hold++;
-      note(m, t, EIGHTH * hold * 0.85, 'square', 0.06, 2600, true);
-      note(m + 12, t, EIGHTH * 0.5, 'sine', 0.025);    // a little sparkle on top
-    }
-    step++; nextT += EIGHTH;
+
+// Public-domain source melodies; newly arranged accompaniment and synthesis.
+// Sakura: Collection of Japanese Koto Music (1888), no. 2, melody staff.
+// https://ci.nii.ac.jp/ncid/BN12694671
+// Toryanse: traditional / Nagayo Motoori (1885-1945), familiar melodic version.
+// https://www.city.numazu.shizuoka.jp/shisei/profile/bunkazai/bungaku/nagayo.htm
+// Funiculi, Funicula: Luigi Denza (1846-1922), Ricordi 1880, chorus; no lyrics.
+// https://urresearch.rochester.edu/institutionalPublicationPublicView.action?institutionalItemVersionId=8401
+export const SONGS={
+  sakura: { ...{"title":"Sakura Sakura","bpm":100,"meter":[4,4],"eighthsPerBar":8,"duty":0.25,"style":"sakura","bStart":7,"level":0.6}, score: [
+    [45,[64,69,71],[69,"~",69,"~",71,"~","~","~"]],
+    [45,[64,69,71],[69,"~",69,"~",71,"~","~","~"]],
+    [41,[65,69,72],[69,"~",71,"~",72,"~",71,"~"]],
+    [41,[65,69,72],[69,"~",71,69,65,"~","~","~"]],
+    [48,[64,67,72],[64,"~",60,"~",64,"~",65,"~"]],
+    [40,[64,69,71],[64,"~",64,60,59,"~","~","~"]],
+    [41,[65,69,72],[69,"~",71,"~",72,"~",71,"~"]],
+    [41,[65,69,72],[69,"~",71,69,65,"~","~","~"]],
+    [48,[64,67,72],[64,"~",60,"~",64,"~",65,"~"]],
+    [40,[64,69,71],[64,"~",64,60,59,"~","~","~"]],
+    [45,[64,69,71],[69,"~",69,"~",71,"~","~","~"]],
+    [45,[64,69,71],[69,"~",69,"~",71,"~","~","~"]],
+    [41,[65,69,72],[null,null,64,"~",65,"~","~","~"]],
+    [40,[64,69,71],[71,69,65,"~",64,"~","~","~"]]
+  ] },
+  kyoto: { ...{"title":"Toryanse","bpm":132,"meter":[4,4],"eighthsPerBar":8,"duty":0.5,"style":"kyoto","bStart":10,"level":0.62}, score: [
+    [50,[62,69,74],[69,"~","~","~",69,"~",67,"~"]],
+    [45,[64,69,74],[69,"~",69,67,64,"~",null,null]],
+    [46,[62,65,70],[70,"~",70,70,74,"~",70,69]],
+    [45,[64,69,74],[70,69,67,67,69,"~",null,null]],
+    [46,[62,65,70],[70,"~",70,"~","~",74,70,69]],
+    [45,[64,69,74],[70,69,67,67,69,"~",null,null]],
+    [41,[60,65,69],[65,"~","~",65,69,"~",65,64]],
+    [50,[62,69,74],[65,64,62,62,64,"~",null,null]],
+    [41,[60,65,69],[65,65,"~",65,69,69,65,64]],
+    [50,[62,69,74],[65,64,62,62,64,"~",null,null]],
+    [46,[62,65,70],[70,70,70,70,74,74,70,69]],
+    [45,[64,69,74],[70,69,67,67,69,"~","~",null]],
+    [41,[60,65,69],[65,65,65,65,65,69,65,64]],
+    [50,[62,69,74],[65,64,62,62,64,"~","~","~"]],
+    [45,[64,69,74],[null,69,69,69,69,69,69,67]],
+    [50,[62,69,74],[69,69,69,67,62,62,64,"~"]],
+    [43,[62,67,70],[null,62,64,65,67,69,70,69]],
+    [46,[62,65,70],[70,"~",74,"~",76,74,70,"~"]],
+    [50,[62,69,74],[69,"~",69,67,69,"~","~","~"]]
+  ] },
+  italy: { ...{"title":"Funiculi, Funicula","bpm":168,"meter":[6,8],"eighthsPerBar":6,"duty":0.25,"style":"italy","bStart":16,"level":0.85}, score: [
+    [46,[58,62,65],[74,"~","~",72,null,null]],
+    [46,[58,62,65],[74,"~","~",72,null,null]],
+    [46,[58,62,65],[75,"~",74,72,"~",75]],
+    [46,[58,62,65],[74,"~","~","~","~",null]],
+    [46,[58,62,65],[74,"~","~",72,null,null]],
+    [46,[58,62,65],[74,"~","~",72,null,null]],
+    [46,[58,62,65],[75,"~",74,72,"~",75]],
+    [51,[55,58,63],[70,null,67,67,"~",67]],
+    [50,[59,62,65],[67,"~",67,67,"~",67]],
+    [48,[60,63,67],[67,"~",67,67,"~",67]],
+    [47,[59,62,67],[67,"~",67,67,"~",67]],
+    [48,[60,63,67],[75,"~","~","~","~","~"]],
+    [44,[60,63,68],[77,"~",75,72,"~",75]],
+    [46,[58,62,65],[70,null,67,67,"~",68]],
+    [46,[58,62,65],[70,"~",68,67,"~",65]],
+    [51,[55,58,63],[63,"~",null,null,null,null]],
+    [46,[58,62,65],[74,"~","~",72,null,null]],
+    [46,[58,62,65],[74,"~","~",72,null,null]],
+    [46,[58,62,65],[75,"~",74,72,"~",75]],
+    [46,[58,62,65],[74,"~","~","~","~",null]],
+    [46,[58,62,65],[74,"~","~",72,null,null]],
+    [46,[58,62,65],[74,"~","~",72,null,null]],
+    [46,[58,62,65],[75,"~",74,72,"~",75]],
+    [51,[55,58,63],[70,null,67,67,"~",67]],
+    [50,[59,62,65],[67,"~",67,67,"~",67]],
+    [48,[60,63,67],[67,"~",67,67,"~",67]],
+    [47,[59,62,67],[67,"~",67,67,"~",67]],
+    [48,[60,63,67],[75,"~","~","~","~","~"]],
+    [44,[60,63,68],[77,"~",75,72,"~",75]],
+    [46,[58,62,65],[70,null,67,67,"~",68]],
+    [46,[58,62,65],[70,"~",68,67,"~",65]],
+    [51,[55,58,63],[63,"~",null,null,null,null]]
+  ] }
+};
+for(const [id,song] of Object.entries(HX_SONGS))SONGS[id]={...song,hx:true,eighthsPerBar:8};
+// Quarter-note bpm is explicit even in 6/8 (168 quarters = 112 dotted quarters).
+// melody: MIDI onset, '~' tied continuation, null rest. No implicit null-as-tie.
+const chipWaves = new WeakMap(), chipNoise = new WeakMap(), compiledSongs = new WeakMap();
+function pulseWave(ctx, duty) {
+  let bank = chipWaves.get(ctx); if (!bank) chipWaves.set(ctx, bank = new Map());
+  if (bank.has(duty)) return bank.get(duty);
+  const re = new Float32Array(65), im = new Float32Array(65);
+  for (let n = 1; n < 65; n++) {
+    re[n] = 2 * Math.sin(2 * Math.PI * n * duty) / (n * Math.PI);
+    im[n] = 2 * (1 - Math.cos(2 * Math.PI * n * duty)) / (n * Math.PI);
   }
+  const wave = ctx.createPeriodicWave(re, im); bank.set(duty, wave); return wave;
+}
+function musicNoise(ctx) {
+  if (chipNoise.has(ctx)) return chipNoise.get(ctx);
+  const buf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate), a = buf.getChannelData(0);
+  let state = 39127;
+  for (let i = 0; i < a.length; i++) { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; a[i] = state / 2147483648 - 1; }
+  chipNoise.set(ctx, buf); return buf;
+}
+export function compileMusic(song) {
+  if (compiledSongs.has(song)) return compiledSongs.get(song);
+  const e = 60 / song.bpm / 2, n = song.eighthsPerBar, events = [];
+  const tone = (tick, m, dur, voice, vol, extra = {}) => events.push({t:tick*e/2, m, dur, voice, vol:vol*(song.level??1), ...extra});
+  const drum = (tick, kind, vol) => events.push({t:tick*e/2, dur:kind==='hat'?.023:kind==='snare'?.075:.12, kind, vol:vol*(song.level??1), seed:tick});
+  song.score.forEach(([root,chord,mel], bar) => {
+    if (mel.length !== n) throw Error('Invalid music bar length');
+    const base = bar*n*2, b = bar >= song.bStart;
+    for(let s=0;s<n;s++) {
+      const tick=base+s*2, m=mel[s];
+      if(typeof m==='number') {
+        let hold=1; while(s+hold<n && mel[s+hold]==='~')hold++;
+        tone(tick,m,e*hold-.018,'pulse',.09,{duty:song.duty,vibrato:song.style==='sakura'?7:13});
+      }
+    }
+    if(song.style==='sakura') {
+      tone(base,root,e*3.5,'triangle',.16);
+      tone(base+8,root+7,e*3.3,'triangle',.125);
+      // B grows by rhythmic subdivision; the transport tempo remains constant.
+      for(let j=0;j<16;j+=(b?1:4))tone(base+j,chord[[0,1,2,1][j%4]],e*(b?.32:.62),'square',b?.023:.028);
+      for(const j of [2,6,10,14])drum(base+j,'hat',.018);
+      if(bar%2===0)drum(base,'taiko',.13);
+      if(b && bar%2===1)drum(base+12,'taiko',.1);
+    } else if(song.style==='kyoto') {
+      for(const j of [0,4,8,12])tone(base+j,root+(j===8?7:0),e*.8,'triangle',.145);
+      for(let j=0;j<16;j+=(b?1:2))tone(base+j,chord[[0,1,2,1][(j/(b?1:2))%4]],e*.34,'square',.023);
+      for(const j of [0,6,8])drum(base+j,'taiko',j===0?.21:.13);
+      for(const j of [4,12])drum(base+j,'snare',.075);
+      for(let j=0;j<16;j+=2)drum(base+j,'hat',.022);
+    } else {
+      // 6/8: two compound beats, not three quarter-note waltz accents.
+      for(const j of [0,6])tone(base+j,root+(j===6?7:0),e*.8,'triangle',.16);
+      for(let j=0;j<12;j++)tone(base+j,chord[[0,1,2,1,2,1][j%6]],e*.33,'square',b?.026:.021);
+      for(const j of [0,6])drum(base+j,'kick',.23);
+      drum(base+6,'snare',b?.09:.06);
+      for(const j of [2,4,8,10])drum(base+j,'hat',.03);
+    }
+  });
+  events.sort((a,b)=>a.t-b.t);
+  const result={events,duration:song.score.length*n*e};compiledSongs.set(song,result);return result;
+}
+// Shared by Web Audio playback and OfflineAudioContext preview/verification.
+export function renderMusicEvent(ctx,out,event,when,elapsed=0,owned=null) {
+  const dur=event.dur-elapsed; if(dur<=.001)return;
+  const g=ctx.createGain(), t=when, nodes=[g]; g.gain.value=0; let source, lfo;
+  if(event.kind) {
+    source=ctx.createBufferSource();source.buffer=musicNoise(ctx);
+    const f=ctx.createBiquadFilter();nodes.push(f);
+    f.type=event.kind==='hat'?'highpass':'bandpass';f.Q.value=event.kind==='taiko'?3:1;
+    const f0=event.kind==='hat'?7500:event.kind==='snare'?2300:event.kind==='taiko'?240:180;
+    f.frequency.setValueAtTime(f0,t);
+    if(event.kind==='kick'||event.kind==='taiko')f.frequency.exponentialRampToValueAtTime(65,t+dur);
+    source.connect(f).connect(g);source.start(t,((event.seed*7919)%31000)/44100);
+  } else {
+    source=ctx.createOscillator();source.frequency.value=mtof(event.m);
+    if(event.voice==='pulse')source.setPeriodicWave(pulseWave(ctx,event.duty));else source.type=event.voice;
+    if(event.vibrato){lfo=ctx.createOscillator();const depth=ctx.createGain();nodes.push(lfo,depth);lfo.type='triangle';lfo.frequency.value=7.5;depth.gain.value=event.vibrato;lfo.connect(depth).connect(source.detune);lfo.start(t);lfo.stop(t+dur+.002);}
+    source.connect(g);source.start(t);
+  }
+  const attack=Math.min(.003,dur*.2), release=Math.min(.012,dur*.25), vol=event.vol*(elapsed?Math.max(.15,1-elapsed/event.dur):1);
+  g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(vol,t+attack);
+  g.gain.exponentialRampToValueAtTime(Math.max(.0001,vol*.32),t+dur-release);
+  g.gain.linearRampToValueAtTime(0,t+dur);g.connect(out);
+  source.stop(t+dur+.002);owned?.add(source);
+  source.onended=()=>{owned?.delete(source);source.disconnect();for(const node of nodes)node.disconnect();};
 }
 
-export const music = {
-  start(id) {
-    if (!ac) return;
-    this.stop(0);
-    musicBus.disconnect();musicBus=ac.createGain();musicBus.connect(master);
-    activeSong=SONGS[id]??null;
-    musicBus.gain.cancelScheduledValues(ac.currentTime);
-    musicBus.gain.setValueAtTime(MUSIC_VOL, ac.currentTime);
-    step = 0; nextT = ac.currentTime + 0.05;
-    schedule();
-    musicTimer = setInterval(schedule, 60);
+let musicTimer=0, musicRun=null, musicState='stopped', musicWorld='default', pausedPosition=0;
+const retiredMusicBuses=new Set();
+const defaultMusic={bpm:132,eighthsPerBar:8,score:SONG,legacy:true};
+function selectedMusic(id){return Object.prototype.hasOwnProperty.call(SONGS,id)?SONGS[id]:defaultMusic;}
+function songLength(song){return song.score.length*(song.eighthsPerBar??8)*60/song.bpm/2;}
+function musicPosition(){return musicRun?(musicRun.offset+Math.max(0,ac.currentTime-musicRun.origin))%songLength(musicRun.song):pausedPosition;}
+function retireMusic(fade=.008) {
+  clearInterval(musicTimer);musicTimer=0;
+  const run=musicRun;musicRun=null;if(!run)return;
+  const now=run.ctx.currentTime, f=Math.max(.008,fade);
+  run.bus.gain.cancelScheduledValues(now);run.bus.gain.setValueAtTime(1,now);run.bus.gain.linearRampToValueAtTime(0,now+f);
+  for(const source of run.owned)try{source.stop(now+f+.002);}catch{}
+  retiredMusicBuses.add(run.bus);
+  setTimeout(()=>{run.bus.disconnect();retiredMusicBuses.delete(run.bus);},f*1000+40);
+}
+function legacyStep(s,t) {
+  const [root,chord,mel]=SONG[Math.floor(s/8)%SONG.length], i=s%8;
+  if(i===0||i===4){note(i?root+7:root,t,.2,'triangle',.32);kick(t);}
+  if(i===2||i===6)for(const m of chord)note(m,t,.11,'square',.025,1800);
+  if(i%2===1)noise(t,.03,i===3||i===7?.05:.03,8000,8000,.7,'highpass',musicRun.bus);
+  if(mel[i]!==null){let hold=1;while(i+hold<8&&mel[i+hold]===null&&hold<2)hold++;note(mel[i],t,EIGHTH*hold*.85,'square',.06,2600,true);note(mel[i]+12,t,EIGHTH*.5,'sine',.025);}
+}
+function pumpMusic() {
+  const run=musicRun;if(!run||!ac||ac.state!=='running')return;
+  const now=ac.currentTime, horizon=now+.12, length=songLength(run.song);
+  if(run.song.legacy || run.song.hx) {
+    const e=60/run.song.bpm/2;
+    if(run.next<now-.05){run.step=Math.ceil((now-run.origin+run.offset)/e);run.next=run.origin-run.offset+run.step*e;}
+    while(run.next<horizon){if(!muted){if(run.song.hx)scheduleChipStep(ac,run.bus,run.song,run.step,run.next);else legacyStep(run.step,run.next);}run.step++;run.next=run.origin-run.offset+run.step*e;}
+    return;
+  }
+  const {events}=compileMusic(run.song);
+  // Skip stale events after a long main-thread stall instead of scheduling a catch-up burst.
+  while(true){
+    const event=events[run.cursor], when=run.origin-run.offset+run.cycle*length+event.t;
+    if(when>=horizon)break;
+    if(!muted && when+event.dur>now+.001)renderMusicEvent(ac,run.bus,event,Math.max(now,when),Math.max(0,now-when),run.owned);
+    if(++run.cursor===events.length){run.cursor=0;run.cycle++;}
+    if(run.cycle*length+run.origin-run.offset<now-length)run.cycle=Math.floor((now-run.origin+run.offset)/length);
+  }
+}
+function beginMusic(position) {
+  const song=selectedMusic(musicWorld), offset=position%songLength(song), origin=ac.currentTime+.02, bus=ac.createGain();bus.connect(musicBus);
+  musicRun={ctx:ac,song,offset,origin,bus,owned:new Set(),cursor:0,cycle:0};
+  if(song.legacy || song.hx){const e=60/song.bpm/2;musicRun.step=Math.ceil(offset/e);musicRun.next=origin-offset+musicRun.step*e;}
+  else {
+    const events=compileMusic(song).events;
+    while(musicRun.cursor<events.length && events[musicRun.cursor].t<offset-1e-8){const ev=events[musicRun.cursor++];if(!muted&&ev.t+ev.dur>offset)renderMusicEvent(ac,bus,ev,origin,offset-ev.t,musicRun.owned);}
+    if(musicRun.cursor===events.length){musicRun.cursor=0;musicRun.cycle=1;}
+  }
+  musicState='playing';pumpMusic();musicTimer=setInterval(pumpMusic,25);
+}
+export const music={
+  start(id='default') {
+    if(!ac||ac.state==='closed')return;
+    retireMusic();musicWorld=id;pausedPosition=0;beginMusic(0);
   },
-  // Fade out (seconds), e.g. under the win jingle.
-  stop(fade = 0.6) {
-    clearInterval(musicTimer); musicTimer = 0;
-    if (!ac || !fade) return;
-    musicBus.gain.setTargetAtTime(0, ac.currentTime, fade / 3);
-  },
-  pause() { clearInterval(musicTimer); musicTimer = 0; },
-  resume() {
-    if (!ac || musicTimer) return;
-    nextT = ac.currentTime + 0.05;
-    musicTimer = setInterval(schedule, 60);
-  },
-  get playing() { return !!musicTimer; },
+  stop(fade=.6){retireMusic(fade);musicState='stopped';pausedPosition=0;},
+  pause(){if(musicState!=='playing')return;pausedPosition=musicPosition();retireMusic();musicState='paused';},
+  resume(){if(!ac||ac.state==='closed'||musicState!=='paused')return;beginMusic(pausedPosition);},
+  get playing(){return musicState==='playing';},
 };
