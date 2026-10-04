@@ -49,10 +49,12 @@ const puffTex = () => canvasTex(64, 64, (x) => {
 
 
 // Dash trails bought in the wardrobe: one atlas, one Points batch for every kind.
-// Cells: 0 crumb, 1 heart, 2 petal, 3 bubble, 4 star, 5 soft dot (tinted: rainbow).
-const TRAIL_CELL = { crumbs: 0, hearts: 1, petals: 2, bubbles: 3, stars: 4, rainbow: 5 };
+// Cells: 0 crumb, 1 heart, 2 petal, 3 bubble, 4 star, 5 soft dot (tinted: rainbow), 6 leaf and
+// 7 snowflake (both drawn light, tinted per particle; seasons use them too).
+export const TRAIL_CELL = { crumbs: 0, hearts: 1, petals: 2, bubbles: 3, stars: 4, rainbow: 5, leaves: 6, snow: 7 };
 const RAINBOW = ['#ff8fa3', '#ffc078', '#ffe066', '#9be38b', '#8cc8ff', '#c5a3ff'].map((c) => new THREE.Color(c));
-const trailTex = () => canvasTex(256, 128, (x) => {
+let atlas = null;
+export const trailTex = () => atlas ??= canvasTex(256, 128, (x) => {
   const cell = (i, draw) => { x.save(); x.translate((i % 4) * 64 + 32, Math.floor(i / 4) * 64 + 32); draw(); x.restore(); };
   const ink = '#6b3f2a';
   x.lineJoin = 'round';
@@ -86,8 +88,29 @@ const trailTex = () => canvasTex(256, 128, (x) => {
     g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.6, 'rgba(255,255,255,0.9)'); g.addColorStop(1, 'rgba(255,255,255,0)');
     x.fillStyle = g; x.beginPath(); x.arc(0, 0, 30, 0, 7); x.fill();
   });
+  cell(6, () => { // leaf: pointed oval with a vein, light so the tint gives its colour
+    x.rotate(0.6);
+    x.fillStyle = '#ffffff'; x.strokeStyle = '#b9a58c'; x.lineWidth = 3;
+    x.beginPath(); x.moveTo(0, -26); x.quadraticCurveTo(20, -4, 0, 24); x.quadraticCurveTo(-20, -4, 0, -26); x.fill(); x.stroke();
+    x.beginPath(); x.moveTo(0, -18); x.lineTo(0, 28); x.stroke();
+    for (const k of [-8, 2]) { x.beginPath(); x.moveTo(0, k); x.lineTo(8, k - 7); x.moveTo(0, k + 4); x.lineTo(-8, k - 3); x.stroke(); }
+  });
+  cell(7, () => { // snowflake: six round-tipped arms on a soft glow
+    const g = x.createRadialGradient(0, 0, 2, 0, 0, 22);
+    g.addColorStop(0, 'rgba(255,255,255,0.9)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+    x.fillStyle = g; x.beginPath(); x.arc(0, 0, 22, 0, 7); x.fill();
+    x.strokeStyle = '#ffffff'; x.lineCap = 'round'; x.lineWidth = 4;
+    for (let i = 0; i < 6; i++) {
+      const a = i * Math.PI / 3, c = Math.cos(a), sn = Math.sin(a);
+      x.beginPath(); x.moveTo(0, 0); x.lineTo(c * 20, sn * 20);
+      x.moveTo(c * 12, sn * 12); x.lineTo(c * 12 + Math.cos(a + 0.8) * 6, sn * 12 + Math.sin(a + 0.8) * 6);
+      x.moveTo(c * 12, sn * 12); x.lineTo(c * 12 + Math.cos(a - 0.8) * 6, sn * 12 + Math.sin(a - 0.8) * 6);
+      x.stroke();
+    }
+  });
 });
-const trailMaterial = (map) => new THREE.ShaderMaterial({
+const SPLASH = ['#d8f3ff', '#9fd8f5'];
+export const trailMaterial = (map) => new THREE.ShaderMaterial({
   uniforms: { uMap: { value: map }, uPx: { value: 1 } },
   vertexShader: `
     attribute float aSize; attribute float aCell; attribute float aAlpha; attribute float aRot; attribute vec3 aColor;
@@ -184,6 +207,21 @@ export class FX {
         T.c.copy(rb ? RAINBOW[j] : WHITE);
       }
     }
+  }
+
+  // Water drops thrown up where a dog runs into a puddle, and a ring on the water.
+  splash(pos, R, big, vx = 0, vz = 0, cols = SPLASH) {
+    const n = big ? 22 : 9, v = Math.hypot(vx, vz) || 1;
+    for (let i = 0; i < n; i++) {
+      const T = this.parts[this.ti++ % this.maxTrail], a = Math.random() * Math.PI * 2, s = R * (1 + Math.random() * (big ? 2.4 : 1.4));
+      T.p.copy(pos).add(tv.set(Math.cos(a) * R * 0.5, R * 0.15, Math.sin(a) * R * 0.5));
+      T.v.set(Math.cos(a) * s * 0.6 + vx / v * R * 0.8, s * (1.2 + Math.random()), Math.sin(a) * s * 0.6 + vz / v * R * 0.8);
+      T.g = R * 9; T.t = 0; T.life = 0.35 + Math.random() * 0.2;
+      T.size = R * (0.12 + Math.random() * 0.1); T.cell = TRAIL_CELL.bubbles; T.rot = 0; T.vr = 0;
+      T.c.set(cols[Math.random() < 0.5 ? 0 : 1]);
+    }
+    tv.copy(pos); tv.y = 0.8;
+    this.ring(tv, UP, R * 0.4, R * (big ? 2.6 : 1.6), big ? 0.5 : 0.35, 0.7, this.tex.ground);
   }
 
   ring(pos, normal, r0, r1, life, alpha, tex, ey = 1) {

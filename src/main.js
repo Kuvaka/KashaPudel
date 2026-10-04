@@ -5,7 +5,7 @@ import { Renderer, refreshSafeArea } from './render.js';
 import { Input } from './input.js';
 import { unlock, sfx, music, isMuted, setMuted } from './audio.js';
 import { Wallet } from './wallet.js';
-import { Wardrobe, outfitOf, botOutfit, itemById } from './wardrobe.js';
+import { Wardrobe, outfitOf, botOutfit, itemById, worldOf } from './wardrobe.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('game');
@@ -20,7 +20,8 @@ async function make3d() {
   catch (e) { console.error(e); return null; }
 }
 const renderer = (!new URLSearchParams(location.search).has('2d') && await make3d()) || new Renderer(canvas, await loadArt());
-const input = new Input(canvas, $('dash'));
+const input = new Input(canvas, $('dash'), $('poop'));
+const season = () => new URLSearchParams(location.search).get('season') || worldOf(wallet.p.worn);
 const WR = CONFIG.wardrobe;
 const wallet = new Wallet(WR.starterGift);
 let screen = 'start';
@@ -58,7 +59,7 @@ const game = new Game({
       return;
     }
     renderer.burst(d.x, d.y, '#ffd23f', 40, 320);
-    if (runId) { const id = runId; runId = null; finResult = wallet.finish(id, d.eaten, WR.finishBonus); }
+    if (runId) { const id = runId; runId = null; finResult = wallet.finish(id, d.eaten, game.lv.bonus ?? WR.finishBonus); }
     music.stop(0.5);
     sfx.win(sizeOf(d));
     setTimeout(showFinish, 1400);
@@ -75,6 +76,34 @@ const game = new Game({
     sfx.beep(!n);
     if (!n) { music.start(); sfx.bark(sizeOf(game.player), 0.5, 0, 2); }
   },
+  onPoop(d, p) {
+    if (screen !== null) return;
+    const near = Math.hypot(d.x - game.player.x, d.y - game.player.y) < 700;
+    if (d.isPlayer || near) sfx.plop();
+  },
+  onYuck(d, p) {
+    if (screen !== null) return;
+    const near = Math.hypot(d.x - game.player.x, d.y - game.player.y) < 700;
+    if (d.isPlayer || near) { sfx.yuck(d.isPlayer); renderer.floatText(d.x, d.y - d.r * 2, 'Фу!', '#b7e07a', Math.max(22, d.r * 0.8)); }
+    if (d.isPlayer) showToast(`💩 Фу-у! Сюрприз от собачки ${p.owner.name}`);
+    else if (p.owner.isPlayer) showToast(`💩 ${d.name} наступает в твой сюрприз!`);
+  },
+  // Ran into a drift / leaf pile, or stepped into mud: a puff and a word, nothing lost.
+  onBump(d, o, v) {
+    renderer.bump?.(d, o, v);
+    if (screen !== null) return;
+    const near = Math.hypot(d.x - game.player.x, d.y - game.player.y) < 700;
+    if (!d.isPlayer && !near) return;
+    const B = BUMP[o.kind];
+    if (o.kind === 'mud') sfx.splash(true); else { sfx.whoosh(); sfx.boing(d.isPlayer); }
+    renderer.floatText(d.x, d.y - d.r * 2, B.word, B.color, Math.max(22, d.r * 0.8));
+    if (d.isPlayer) showToast(B.toast);
+  },
+  onSplash(d, pud, boost) {
+    if (screen !== null) return;
+    renderer.splash?.(d, pud, boost);
+    if (d.isPlayer || (boost && Math.hypot(d.x - game.player.x, d.y - game.player.y) < 600)) sfx.splash(boost);
+  },
   // Dash: a whoosh and often a happy bark; rivals bark too when they're near you on screen.
   onDash(d) {
     if (screen !== null) return;
@@ -88,6 +117,12 @@ const game = new Game({
 window.__kf = { game, renderer, input, wallet }; // debug handle
 
 let toastTimer = 0, lastRivalBark = 0, musicWasOn = false;
+const BUMP = {
+  drift: { word: 'Бух!', color: '#dff3ff', toast: '❄️ Бух в сугроб! Отряхиваемся…' },
+  leaves: { word: 'Шурх!', color: '#ffc46b', toast: '🍂 Шурх! Прямо в кучу листьев' },
+  mud: { word: 'Плюх!', color: '#c9a27a', toast: '🟤 Плюх! Лапки застряли в грязи' },
+};
+
 function showToast(text) {
   const el = $('toast');
   el.textContent = text;
@@ -115,7 +150,7 @@ function showFinish() {
   $('gift-message').textContent = CONFIG.gift.message;
   $('gift-signature').textContent = CONFIG.gift.signature;
   $('fin-place').textContent = `${MEDALS[p.place - 1] || '🏁'} ${p.place}-е место из ${game.dogs.length}`;
-  $('fin-stats').innerHTML = `Время: <b>${fmtTime(p.finished)}</b> · Печенья: <b>${p.eaten}</b>`;
+  $('fin-stats').innerHTML = `${game.lv.ico} ${game.lv.name} · Время: <b>${fmtTime(p.finished)}</b> · Печенья: <b>${p.eaten}</b>`;
   const bank = $('fin-bank');
   bank.textContent = '';
   Promise.resolve(finResult).then((r) => {
@@ -148,7 +183,8 @@ function begin() {
   music.stop(0.2); musicWasOn = false;
   const name = $('name').value.trim().slice(0, 12);
   try { localStorage.setItem('kf_name', name); } catch {}
-  game.start(name || CONFIG.gift.defaultName);
+  renderer.setSeason?.(season());
+  game.start(name || CONFIG.gift.defaultName, season(), level);
   runId = wallet.startRun(); finResult = null;
   dressDogs();
   renderer.snapCamera(game.player);
@@ -176,6 +212,10 @@ function syncBank() {
 wallet.on(syncBank);
 
 const wardrobe = new Wardrobe({ wallet, renderer, onClose() {
+  if (wardrobeFrom === 'start' && game.season !== season()) { // a new map: the menu backdrop moves there
+    renderer.setSeason?.(season());
+    game.start('', season()); game.countdown = 0; dressDogs(); renderer.snapCamera(game.player);
+  }
   game.player.outfit = outfitOf(wallet.p.worn);
   show(wardrobeFrom);
 } });
@@ -193,6 +233,23 @@ let savedName = null;
 try { savedName = localStorage.getItem('kf_name'); } catch {}
 $('name').value = savedName || CONFIG.gift.defaultName;
 $('play').addEventListener('click', begin);
+
+// Difficulty: remembered on this device; easy is the original balance.
+const LV = CONFIG.difficulty;
+let level = 'easy';
+try { const v = localStorage.getItem('kf_level'); if (LV[v]) level = v; } catch {}
+function renderLevels() {
+  $('level').innerHTML = LV.order.map((id) =>
+    `<button data-id="${id}" role="radio" aria-checked="${id === level}" class="${id === level ? 'on' : ''}"><b>${LV[id].ico}</b>${LV[id].name}</button>`).join('');
+}
+$('level').addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  level = b.dataset.id;
+  try { localStorage.setItem('kf_level', level); } catch {}
+  renderLevels();
+});
+renderLevels();
 $('again').addEventListener('click', begin);
 $('name').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.repeat && screen === 'start') { e.preventDefault(); begin(); } });
 
@@ -222,10 +279,14 @@ refreshSafeArea();
 
 // HUD
 const hudStage = $('stage-name'), hudBar = $('xp-fill'), hudBoard = $('board'), hudTime = $('race-time');
-const dashBtn = $('dash');
-let boardTimer = 0, dashWasReady = true;
+const dashBtn = $('dash'), poopBtn = $('poop');
+let boardTimer = 0, dashWasReady = true, poopWasReady = true;
 function updateHud(dt) {
   const p = game.player;
+  const pc = p.poopCd / CONFIG.poop.cooldownSec;
+  poopBtn.style.setProperty('--cd', pc.toFixed(3));
+  if (pc === 0 && !poopWasReady) { poopBtn.classList.remove('ready'); void poopBtn.offsetWidth; poopBtn.classList.add('ready'); }
+  poopWasReady = pc === 0;
   const cd = p.dashCd / CONFIG.dash.cooldownSec;
   dashBtn.style.setProperty('--cd', cd.toFixed(3));
   if (cd === 0 && !dashWasReady) {
@@ -253,7 +314,8 @@ function escapeHtml(s) { return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<'
 
 // Fixed-step simulation, interpolated rendering (smooth on 120 Hz ProMotion).
 let last = performance.now(), acc = 0;
-game.start('');
+renderer.setSeason?.(season());
+game.start('', season());
 game.countdown = 0; // menu backdrop: bots already roam
 dressDogs();
 renderer.snapCamera(game.player);
@@ -272,7 +334,7 @@ function frame(now) {
     const i = input.read(renderer.vw, renderer.vh);
     // The 3D camera looks down at an angle: screen directions become ground directions.
     const [dx, dy] = renderer.screenDirToWorld ? renderer.screenDirToWorld(i.dirX, i.dirY) : [i.dirX, i.dirY];
-    game.setPlayerInput(dx, dy, i.mag, i.dash);
+    game.setPlayerInput(dx, dy, i.mag, i.dash, i.poop);
   } else {
     game.setPlayerInput(0, 0, 0, false);
   }

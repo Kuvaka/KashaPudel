@@ -1,10 +1,10 @@
 // Touch: floating joystick (anywhere outside the dash button) + hold-to-dash button.
-// Desktop: mouse steers from screen center, or WASD/arrows; Shift/Space dashes.
+// Desktop: mouse steers from screen center, or WASD/arrows; Shift/Space dashes, E leaves a pile.
 const STICK_R = 52; // CSS px
 const DEAD_ZONE = 8;
 
 export class Input {
-  constructor(el, dashBtn) {
+  constructor(el, dashBtn, poopBtn) {
     this.stick = null;          // { id, ox, oy, x, y } in CSS px
     this.mouse = null;          // { x, y } when a mouse hovers the canvas
     this.keys = new Set();
@@ -36,10 +36,16 @@ export class Input {
     dashBtn.addEventListener('pointerup', release);
     dashBtn.addEventListener('pointercancel', release);
     dashBtn.addEventListener('pointerleave', release);
+    // Pile: a tap, remembered until the game reads it.
+    if (poopBtn) {
+      poopBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); if (this.enabled) this.poopTap = true; poopBtn.classList.add('active'); });
+      for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) poopBtn.addEventListener(ev, () => poopBtn.classList.remove('active'));
+    }
 
     window.addEventListener('keydown', (e) => {
       if (!this.enabled || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target?.tagName) || e.target?.isContentEditable) return;
       this.keys.add(e.code);
+      if (e.code === 'KeyE' && !e.repeat) this.poopTap = true;
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
     this.releaseDash = release;
@@ -48,7 +54,7 @@ export class Input {
 
   // Drop every held control (app switch, blur): nothing should stay "pressed" afterwards.
   reset() {
-    this.keys.clear(); this.stick = null; this.mouse = null; this.mouseDash = false;
+    this.keys.clear(); this.stick = null; this.mouse = null; this.mouseDash = false; this.poopTap = false;
     this.releaseDash();
   }
 
@@ -73,7 +79,8 @@ export class Input {
     }
     const dash = this.dashTouch || !!this.mouseDash || this.keys.has('Space') ||
       this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
-    return { dirX: x, dirY: y, mag, dash };
+    const poop = !!this.poopTap; this.poopTap = false;
+    return { dirX: x, dirY: y, mag, dash, poop };
   }
 
   stickVisual() {

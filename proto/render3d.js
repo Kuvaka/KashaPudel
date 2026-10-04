@@ -9,6 +9,8 @@ import { buildDogAssets } from './dogModel.js';
 import { DogVisual } from './dogVisual.js';
 import { buildMeadow, buildFood } from './meadow.js';
 import { FX } from './fx.js';
+import { buildHazards } from './hazards.js';
+import { buildSeasonFx } from './seasonFx.js';
 import { LOCK_UNIFORMS } from './toon.js';
 
 const { world: W, dog: D, camera: CAM, food: F, stages: STAGES } = CONFIG;
@@ -35,6 +37,9 @@ export class World3D {
     this.maxFood = F.count + 64;
     this.food = buildFood(scene, this.maxFood);
     this.fx = DogVisual.fx = new FX(scene);
+    this.hazards = buildHazards(scene);
+    this.seasonFx = buildSeasonFx(scene, 'summer');
+    this.dogsAt = [];
 
     const t0 = performance.now();
     this.assets = buildDogAssets();
@@ -48,6 +53,16 @@ export class World3D {
   }
 
   resize(vw, vh) { this.renderer.setSize(vw, vh, false); }
+
+  // Season of the map: the meadow is rebuilt (a fraction of a second), only when it changes.
+  setSeason(id) {
+    if (this.meadow.season === id) return;
+    this.meadow.dispose();
+    this.meadow = buildMeadow(this.scene, W.w, W.h, id);
+    this.seasonFx.dispose();
+    this.seasonFx = buildSeasonFx(this.scene, id);
+    this.syncView();
+  }
 
   syncVisuals(game) {
     for (const [d, v] of this.visuals) if (!game.dogs.includes(d)) { v.dispose(); this.visuals.delete(d); }
@@ -90,7 +105,7 @@ export class World3D {
     LOCK_UNIFORMS.uHalfWidthPx.value = 0.8 * V.dpr; // 1.6 CSS px ink arcs in the fur
     const px = V.dpr * 1.5;
     this.meadow.setRes(V.res, px);
-    for (const m of this.food.lineMats) { m.uniforms.uRes.value.copy(V.res); m.uniforms.uPx.value = px; }
+    for (const m of [...this.food.lineMats, ...this.hazards.lineMats]) { m.uniforms.uRes.value.copy(V.res); m.uniforms.uPx.value = px; }
     const hx = (camera.right - camera.left) / 2, hz = (camera.top - camera.bottom) / 2 / Math.sin(PITCH);
     const c = camera.userData.target ?? { x: W.w / 2, z: W.h / 2 };
     this.meadow.update(this.time, c.x, c.z, hx, hz);
@@ -120,17 +135,31 @@ export class World3D {
     this.time += dt;
     if (this.studio?.active) { this.studio.frame(dt, vw, vh); return; }
     this.syncVisuals(game);
+    const at = this.dogsAt; at.length = 0;
     for (const d of game.dogs) {
       const x = d.px + (d.x - d.px) * alpha, y = d.py + (d.y - d.py) * alpha;
       this.visuals.get(d).update(d, x, y, Math.max(dt, 1e-6), this.time);
+      at.push([d, x, y]);
     }
     this.updateFood(game, dt);
+    this.hazards.update(game, this.time, dt);
     this.updateCamera(game.player, dt, vw, vh);
+    const { camera } = this, c = camera.userData.target;
+    this.seasonFx.update(game, dt, this.time, c.x, c.z, (camera.right - camera.left) / 2,
+      (camera.top - camera.bottom) / 2 / Math.sin(PITCH), DogVisual.view.pxPerUnit, at);
     this.fx.update(dt, this.camera, DogVisual.view.pxPerUnit);
     this.renderer.info.reset();
     this.renderer.render(this.scene, this.camera);
   }
 }
+
+const STUDIO_SEASON = {
+  summer: ['#cfeab4', '#8fcf62', '#9fd873'],
+  autumn: ['#f1e0b8', '#c9a24e', '#d8b765'],
+  winter: ['#e2edf7', '#f4f8fc', '#e9f0f8'],
+  spring: ['#d9f0cc', '#9edb78', '#b1e38c'],
+};
+const STUDIO_GAME = { dogs: [], obstacles: [] };
 
 // Fitting room: one dog on a little lawn, its own scene and camera in the same WebGL context.
 // Not part of the race: a stand-in dog object drives the same DogVisual, the game is frozen.
@@ -144,11 +173,8 @@ export class Studio {
     const sun = new THREE.DirectionalLight('#fff0d0', 2.0);
     sun.position.set(-0.5, 1, 0.7);
     scene.add(sun);
-    const c = document.createElement('canvas'); c.width = c.height = 128;
-    const g = c.getContext('2d'), grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
-    grad.addColorStop(0, '#8fcf62'); grad.addColorStop(0.7, '#9fd873'); grad.addColorStop(1, 'rgba(207,234,180,0)');
-    g.fillStyle = grad; g.fillRect(0, 0, 128, 128);
-    const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+    this.lawnCanvas = document.createElement('canvas'); this.lawnCanvas.width = this.lawnCanvas.height = 128;
+    const tex = this.lawnTex = new THREE.CanvasTexture(this.lawnCanvas); tex.colorSpace = THREE.SRGBColorSpace;
     this.lawn = new THREE.Mesh(new THREE.CircleGeometry(1, 48), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }));
     this.lawn.rotation.x = -Math.PI / 2; this.lawn.renderOrder = -2;
     scene.add(this.lawn);
@@ -162,6 +188,22 @@ export class Studio {
     this.run = false;      // trot in place to see clothes move
     this.rect = { x: 0, y: 0, w: 1, h: 1 };
     this.time = 0;
+    this.setSeason('summer');
+  }
+
+  // The fitting room takes the colours (and the weather) of the chosen map.
+  setSeason(id) {
+    if (this.season === id) return;
+    this.season = id;
+    const [bg, c0, c1] = STUDIO_SEASON[id] ?? STUDIO_SEASON.summer;
+    this.scene.background = new THREE.Color(bg);
+    const g = this.lawnCanvas.getContext('2d'), grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+    const b = new THREE.Color(bg);
+    grad.addColorStop(0, c0); grad.addColorStop(0.7, c1); grad.addColorStop(1, `rgba(${b.r * 255 | 0},${b.g * 255 | 0},${b.b * 255 | 0},0)`);
+    g.clearRect(0, 0, 128, 128); g.fillStyle = grad; g.fillRect(0, 0, 128, 128);
+    this.lawnTex.needsUpdate = true;
+    this.weather?.dispose();
+    this.weather = buildSeasonFx(this.scene, id, { weatherOnly: true });
   }
 
   setStage(st) {
@@ -199,6 +241,8 @@ export class Studio {
     V.pxPerUnit = V.res.y / H; V.dpr = R.getPixelRatio();
     LOCK_UNIFORMS.uHalfWidthPx.value = 0.8 * V.dpr;
     this.fx.update(dt, cam, V.pxPerUnit);
+    this.weather.top = s * 3.4; this.weather.margin = s * 0.5;
+    this.weather.update(STUDIO_GAME, dt, this.time, 0, 0, s * 2.5, s * 1.5, V.pxPerUnit * 0.5, []);
     R.info.reset();
     R.render(this.scene, cam);
   }
@@ -230,6 +274,13 @@ export class Renderer3D {
   }
 
   snapCamera(p) { this.world.snapCamera(p, this.vw, this.vh); }
+  setSeason(id) { this.world.setSeason(id); }
+  splash(d, pud, boost) { this.world.fx.splash(new THREE.Vector3(d.x, 0, d.y), d.r, boost, d.vx, d.vy); }
+  // A dog ran into a drift (snow puff) or mud (brown drops); leaf piles burst in seasonFx.
+  bump(d, o, v) {
+    const C = { drift: ['#ffffff', '#e3eefa'], mud: ['#6b4a2a', '#8d6a43'] }[o.kind];
+    if (C) this.world.fx.splash(new THREE.Vector3(o.kind === 'drift' ? o.x : d.x, 0, o.kind === 'drift' ? o.y : d.y), o.kind === 'drift' ? o.r * 0.8 : d.r, true, d.vx, d.vy, C);
+  }
 
   // Stick or keys point on the screen; the ground is foreshortened by the 52° pitch.
   screenDirToWorld(x, y) {

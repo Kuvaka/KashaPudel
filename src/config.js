@@ -59,6 +59,32 @@ export const CONFIG = {
             'Мася', 'Тоффи', 'Персик', 'Кнопка', 'Бисквит', 'Ватрушка'],
   },
 
+  // Season obstacles (fixed layout per map, like the puddles): running into a snowdrift or a
+  // leaf pile at speed knocks the dog over (the drift / pile scatters and comes back after
+  // regrowSec); stepping into summer mud gets the paws stuck. Nothing is lost, just time.
+  obstacles: {
+    stunSec: 3,
+    immuneSec: 4,         // after getting up: no second bump right away
+    minSpeed: 110,        // drifts and leaves only stop a dog that runs into them
+    regrowSec: 15,
+    summer: { kind: 'mud', count: 9, rMin: 48, rMax: 70, hit: 0.75 },
+    autumn: { kind: 'leaves', count: 22, rMin: 24, rMax: 32, hit: 0.7 },
+    winter: { kind: 'drift', count: 18, rMin: 28, rMax: 40, hit: 0.75 },
+  },
+
+  // Difficulty: how sharp and pushy the bots are. easy is the original balance. skillAdd /
+  // skillMin lift every bot's skill (capped at 1); think scales their reaction time; aggression:
+  // chance (times skill) to shove a rival heading for the same cookie, within rivalRange; hunt:
+  // chance (times skill) per decision to go after the player when the dash is ready; poopNear /
+  // poopRandom: how eagerly bots leave a surprise; bonus: cookies for finishing at this level.
+  difficulty: {
+    order: ['easy', 'medium', 'hard', 'extreme'],
+    easy:    { name: 'Простой',  ico: '🌱', skillAdd: 0,    skillMin: 0,    speedMul: 0.92, think: 1,    aggression: 0.20, rivalRange: 220, hunt: 0,    huntRange: 0,   poopNear: 0.5, poopRandom: 1,   bonus: 80 },
+    medium:  { name: 'Средний',  ico: '🐾', skillAdd: 0.15, skillMin: 0.55, speedMul: 0.95, think: 0.9,  aggression: 0.35, rivalRange: 250, hunt: 0.06, huntRange: 260, poopNear: 0.6, poopRandom: 1.2, bonus: 120 },
+    hard:    { name: 'Сложный',  ico: '🔥', skillAdd: 0.3,  skillMin: 0.75, speedMul: 0.98, think: 0.75, aggression: 0.6,  rivalRange: 300, hunt: 0.2,  huntRange: 340, poopNear: 0.8, poopRandom: 1.6, bonus: 180 },
+    extreme: { name: 'Экстрим',  ico: '🌶️', skillAdd: 0.5,  skillMin: 0.92, speedMul: 1.0,  think: 0.6,  aggression: 1,    rivalRange: 360, hunt: 0.35, huntRange: 420, poopNear: 1,   poopRandom: 2.5, bonus: 260 },
+  },
+
   // Shoves: a dashing dog knocks a rival back; the rival tumbles, sits dazed for a moment and
   // can't eat, then is protected for a while. No XP is lost.
   shove: {
@@ -75,6 +101,29 @@ export const CONFIG = {
     immuneSec: 2.5,       // a shoved dog can't be shoved again for this long after the spin
     recoil: 0.3,          // attacker keeps this share of its speed
     friction: 4.0,        // knocked-back slide decay, 1/s
+  },
+
+  // Spring puddles: low grip (the dog slides), and a dash into one shoots the dog ahead.
+  puddles: {
+    count: 12, rMin: 70, rMax: 120,
+    grip: 0.5,            // instead of dog.grip while on the water
+    accelMul: 0.6,        // paws slip: speeding up and braking are weaker
+    boostMul: 1.25,       // dashing in: this much faster...
+    boostSec: 0.6,        // ...for this long
+  },
+
+  // "Surprise": a dog leaves a little pile behind; a rival that runs over it sits 'yuck!' for a
+  // while (no growth is lost). Your own piles are harmless to you.
+  poop: {
+    cooldownSec: 30,
+    stunSec: 4,
+    immuneSec: 6,         // after a 'yuck!', piles can't get you again for this long
+    lifeSec: 25,
+    max: 12,              // on the field at once; a new one replaces the oldest
+    r: 11,
+    armSec: 0.6,          // a fresh pile is harmless for a moment (dogs right behind can react)
+    botNearSec: 1.2,      // bots drop one when a rival is this close behind them (in seconds of running)
+    botRandomPerMin: 0.4, // ...or now and then anyway, once the cooldown is over
   },
 
   race: {
@@ -114,6 +163,7 @@ export const CONFIG = {
       { slot: 'face', ico: '👓', name: 'Мордочка' },
       { slot: 'coat', ico: '🎨', name: 'Шёрстка' },
       { slot: 'trail', ico: '✨', name: 'Рывок' },
+      { slot: 'world', ico: '🗺', name: 'Мир' },
     ],
     items: [
       { id: 'bow', slot: 'head', name: 'Бант «Клубника»', price: 120, tier: 'common', ico: '🎀', bots: true, look: { kind: 'bow', color: '#ff6f9f', knot: '#ff4f86', dots: '#ffffff' } },
@@ -152,6 +202,11 @@ export const CONFIG = {
       { id: 'bubbles', slot: 'trail', name: 'Мыльные пузыри', price: 400, tier: 'rare', ico: '🫧', look: { kind: 'trail', fx: 'bubbles' } },
       { id: 'stars', slot: 'trail', name: 'Звёздная пыль', price: 450, tier: 'rare', ico: '⭐', look: { kind: 'trail', fx: 'stars' } },
       { id: 'rainbow', slot: 'trail', name: 'Радужный рывок', price: 2400, tier: 'dream', ico: '🌈', look: { kind: 'trail', fx: 'rainbow' } },
+      // Maps: the season of the meadow. Summer is everyone's from the start (price 0 = owned).
+      { id: 'summer', slot: 'world', name: 'Лето', price: 0, tier: 'common', ico: '☀️', world: 'summer' },
+      { id: 'autumn', slot: 'world', name: 'Осень', price: 800, tier: 'rare', ico: '🍂', world: 'autumn' },
+      { id: 'winter', slot: 'world', name: 'Зима', price: 1000, tier: 'rare', ico: '❄️', world: 'winter' },
+      { id: 'spring', slot: 'world', name: 'Весна', price: 1200, tier: 'rare', ico: '🌸', world: 'spring' },
     ],
   },
 };

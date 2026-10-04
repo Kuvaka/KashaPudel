@@ -38,7 +38,7 @@ function normalize(p) {
 function cleanLook(l) {
   if (!l || typeof l !== 'object') return null;
   const out = {};
-  for (const [s, id] of Object.entries(l)) if (typeof id === 'string') out[s] = id;
+  for (const [s, id] of Object.entries(l)) if (typeof id === 'string' && s !== 'world') out[s] = id; // outfits keep the map
   return Object.keys(out).length ? out : null;
 }
 
@@ -194,8 +194,8 @@ export class Wallet {
   wearLook(i) {
     return this.change((p) => {
       const l = p.looks[i]; if (!l) return false;
-      p.worn = {};
-      for (const [s, id] of Object.entries(l)) if (p.owned.includes(id)) p.worn[s] = id;
+      p.worn = p.worn.world ? { world: p.worn.world } : {};
+      for (const [s, id] of Object.entries(l)) if (s !== 'world' && p.owned.includes(id)) p.worn[s] = id;
     });
   }
 

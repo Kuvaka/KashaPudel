@@ -27,6 +27,8 @@ function visualRandom() {
   return (visualSeed >>> 0) / 4294967296;
 }
 
+const OBST_2D = { mud: ['#6b4a2a', '#8a6440'], drift: ['#bcd0ea', '#ffffff'], leaves: ['#b8552a', '#f0913a'] };
+
 export class Renderer {
   constructor(canvas, art) {
     this.canvas = canvas;
@@ -95,6 +97,34 @@ export class Renderer {
     const left = cam.x - this.vw / 2 / cam.scale - 60, right = cam.x + this.vw / 2 / cam.scale + 60;
     const top = cam.y - this.vh / 2 / cam.scale - 60, bottom = cam.y + this.vh / 2 / cam.scale + 60;
     const visible = (x, y) => x > left && x < right && y > top && y < bottom;
+
+    // Puddles (spring): flat water with a light rim; piles: the emoji, it is a 2D game anyway.
+    for (const pd of game.puddles ?? []) {
+      if (!visible(pd.x, pd.y) && Math.hypot(pd.x - cam.x, pd.y - cam.y) > pd.r + Math.max(this.vw, this.vh) / cam.scale) continue;
+      ctx.fillStyle = 'rgba(111,127,58,0.5)';
+      ctx.beginPath(); ctx.ellipse(pd.x, pd.y, pd.r * 1.15, pd.r * 0.95, pd.rot, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#6cb6dd';
+      ctx.beginPath(); ctx.ellipse(pd.x, pd.y, pd.r, pd.r * 0.82, pd.rot, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.8)';
+      ctx.beginPath(); ctx.ellipse(pd.x - pd.r * 0.3, pd.y - pd.r * 0.3, pd.r * 0.12, pd.r * 0.05, -0.4, 0, Math.PI * 2); ctx.fill();
+    }
+    // Season obstacles: mud (brown blot), drifts (white mounds), leaf piles (orange heaps).
+    for (const o of game.obstacles ?? []) {
+      if (o.gone > 0 || !visible(o.x, o.y)) continue;
+      const look = OBST_2D[o.kind];
+      ctx.fillStyle = look[0];
+      ctx.beginPath(); ctx.ellipse(o.x, o.y + o.r * 0.12, o.r, o.r * 0.82, o.rot, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = look[1];
+      ctx.beginPath(); ctx.ellipse(o.x - o.r * 0.12, o.y - o.r * 0.1, o.r * 0.72, o.r * 0.56, o.rot, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (const pl of game.poops ?? []) {
+      if (!visible(pl.x, pl.y)) continue;
+      const k = Math.min(1, pl.age / 0.25) * Math.min(1, (CONFIG.poop.lifeSec - pl.age) / 0.6);
+      ctx.font = `${Math.max(1, CONFIG.poop.r * 2.6 * k)}px system-ui, sans-serif`;
+      ctx.fillText('💩', pl.x, pl.y);
+    }
+    ctx.textBaseline = 'alphabetic';
 
     // Food
     const t = game.time;

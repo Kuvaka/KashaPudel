@@ -123,6 +123,13 @@ export const sfx = {
     if (!live()) return;
     for (let i = 0; i < n; i++) woof(ac.currentTime + i * (0.16 + 0.05 * size), size, vol * (1 - i * 0.12), pan);
   },
+  // A soft cartoon 'plop' for a pile, a wet splash for puddles, 'yuck!' when a dog runs over a pile.
+  plop() { tone(320, 0.12, 'sine', 0.14, -200); tone(180, 0.1, 'sine', 0.08, -60, 0.05); },
+  splash(big) { if (live()) { noise(ac.currentTime, big ? 0.35 : 0.2, big ? 0.16 : 0.08, 900, 2400, 0.8); tone(520, 0.08, 'sine', 0.04, 300, 0.02); } },
+  yuck(me) {
+    tone(260, 0.22, 'sawtooth', 0.05, -90); tone(200, 0.3, 'triangle', 0.08, -70, 0.12);
+    if (me) tone(700, 0.4, 'sine', 0.05, -400, 0.2);
+  },
   whoosh() { if (live()) noise(ac.currentTime, 0.28, 0.16, 500, 2600, 1.2); },
   ready() { tone(1320, 0.12, 'sine', 0.05); tone(1760, 0.14, 'sine', 0.04, 0, 0.06); },
   rivalDone() { tone(988, 0.18, 'triangle', 0.05); tone(1319, 0.25, 'triangle', 0.04, 0, 0.1); },

@@ -97,13 +97,23 @@ html, body {
   border: 4px solid var(--ink);
   box-shadow: 0 5px 0 var(--ink);
 }
-#dash.active { transform: translateY(4px); box-shadow: 0 1px 0 var(--ink); }
+#poop {
+  position: absolute;
+  right: calc(22px + 84px + 16px + var(--sa-right));
+  bottom: calc(22px + var(--sa-bottom));
+  width: 62px; height: 62px; border-radius: 50%;
+  font-size: 28px; pointer-events: auto; touch-action: none;
+  background: radial-gradient(circle at 35% 30%, #fff, #f3d9b8 60%, #d9ad7c);
+  border: 4px solid var(--ink);
+  box-shadow: 0 4px 0 var(--ink);
+}
+#dash.active, #poop.active { transform: translateY(4px); box-shadow: 0 1px 0 var(--ink); }
 /* Cooldown: a dark wedge that shrinks clockwise as the dash recharges (--cd 1 -> 0). */
-#dash::after {
+#dash::after, #poop::after {
   content: ''; position: absolute; inset: -4px; border-radius: 50%; pointer-events: none;
   background: conic-gradient(rgba(40, 25, 15, 0.55) calc(var(--cd, 0) * 360deg), transparent 0);
 }
-#dash.ready { animation: ready 0.35s ease-out; }
+#dash.ready, #poop.ready { animation: ready 0.35s ease-out; }
 @keyframes ready { 50% { transform: scale(1.12); } }
 
 #mute {
@@ -201,6 +211,16 @@ h2 { font-size: 36px; }
   -webkit-user-select: text; user-select: text; touch-action: manipulation;
 }
 
+#level { display: flex; gap: 4px; margin-bottom: 12px; }
+#level button {
+  flex: 1; min-width: 0; padding: 5px 2px 4px; border-radius: 12px; border: 2px solid var(--ink);
+  background: rgba(255, 255, 255, 0.6); color: var(--ink); touch-action: manipulation; cursor: pointer;
+  font: 700 11px system-ui, sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#level button b { display: block; font-size: 18px; line-height: 1.2; }
+#level button.on { background: #fff; box-shadow: 0 0 0 2px #e64980 inset; }
+#level button.on[data-id="extreme"] { background: #ffe1d6; box-shadow: 0 0 0 2px #e8590c inset; }
+
 button.big {
   width: 100%; padding: 14px 0;
   font: 900 24px system-ui, sans-serif; color: #fff;
@@ -231,7 +251,11 @@ button.big:active { transform: translateY(4px); box-shadow: 0 2px 0 var(--ink); 
   h1 { font-size: 34px; }
   .panel { padding: 12px 18px 14px; }
   .panel p { margin: 4px 0 8px; }
+  #level { margin-bottom: 8px; }
+  #level button { padding: 3px 2px; }
+  #level button b { display: inline; font-size: 14px; margin-right: 3px; }
   #dash { width: 72px; height: 72px; font-size: 30px; }
+  #poop { width: 54px; height: 54px; font-size: 24px; right: calc(22px + 72px + 14px + var(--sa-right)); }
 }
 
 /* Wardrobe: the 3D fitting room shows through the top; cards in a sheet below. */

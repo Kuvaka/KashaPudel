@@ -64,6 +64,25 @@ function swirlTexture() {
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
+// 'Yuck!': three wavy green whiffs rising over the head (instead of the dizzy swirl).
+function stinkTexture() {
+  const c = document.createElement('canvas'); c.width = c.height = 128;
+  const x = c.getContext('2d');
+  x.lineCap = 'round';
+  for (const [w, col] of [[14, '#3a2618'], [7, '#b8e986']]) {
+    x.strokeStyle = col; x.lineWidth = w;
+    for (const ox of [30, 64, 98]) {
+      x.beginPath();
+      for (let i = 0; i <= 30; i++) {
+        const y = 112 - i * 3.3, xx = ox + Math.sin(i / 30 * Math.PI * 2.5 + ox) * 9;
+        i ? x.lineTo(xx, y) : x.moveTo(xx, y);
+      }
+      x.stroke();
+    }
+  }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
 function blobTexture() {
   const c = document.createElement('canvas'); c.width = c.height = 64;
   const x = c.getContext('2d'), g = x.createRadialGradient(32, 32, 4, 32, 32, 32);
@@ -118,6 +137,7 @@ function sharedMaterials(assets) {
     tongueGeo: new THREE.SphereGeometry(1, 12, 8),
     shadow: new THREE.MeshBasicMaterial({ map: blobTexture(), transparent: true, depthWrite: false }),
     swirl: new THREE.SpriteMaterial({ map: swirlTexture(), depthTest: false }),
+    stink: new THREE.SpriteMaterial({ map: stinkTexture(), depthTest: false }),
     playerRing: new THREE.MeshBasicMaterial({ color: 0xffe45c, transparent: true, opacity: 0.9, depthWrite: false }),
     immuneRing: new THREE.MeshBasicMaterial({ color: 0xb4f5ff, transparent: true, opacity: 0.8, depthWrite: false }),
     gold: new THREE.MeshPhongMaterial({ color: 0xffc83a, shininess: 90, specular: 0xffffff }),
@@ -439,7 +459,8 @@ export class DogVisual {
       hRoll += Math.sin(t * 0.45 + this.seed * 2) * 0.14;
       hPitch += Math.sin(t * 0.9 + this.seed) * 0.05;
     }
-    if (down && down.phase === 'sit') { hYaw = Math.sin(t * 4) * 0.3 * this.daze; hRoll = Math.cos(t * 4) * 0.22 * this.daze; hPitch = -0.15; }
+    if (down?.yuck) { hYaw = Math.sin(t * 13) * 0.22 * this.daze; hRoll = 0; hPitch = -0.25; } // brr, shake it off
+    else if (down && down.phase === 'sit') { hYaw = Math.sin(t * 4) * 0.3 * this.daze; hRoll = Math.cos(t * 4) * 0.22 * this.daze; hPitch = -0.15; }
     if (!down) hPitch += 0.1; // chin up a little, looking up and ahead like the concept
     this.head.rotation.set(hRoll, hYaw, hPitch, 'YXZ');
 
@@ -452,7 +473,8 @@ export class DogVisual {
     if (this.blinkT < 0) { this.blink = 0.15; this.blinkT = 2 + Math.random() * 4; }
     this.blink = Math.max(0, this.blink - dt);
     const bt = 0.15 - this.blink, shut = this.blink <= 0 ? 0 : bt < 0.045 ? bt / 0.045 : bt < 0.07 ? 1 : 1 - (bt - 0.07) / 0.08;
-    const dizzy = !!down && this.daze > 0.3;
+    const dizzy = !!down && this.daze > 0.3 && !down.yuck;
+    const lid = down?.yuck ? Math.max(shut, 0.7 * this.daze) : shut; // 'yuck': eyes screwed up
     for (let i = 0; i < 2; i++) {
       const { b, e } = this.eyes[i], side = i ? 1 : -1;
       // Shallow dome along the face's smooth normal, sunk a little; a blink brings the top down
@@ -462,7 +484,7 @@ export class DogVisual {
       tmpM.makeBasis(tmpA, tmpE.crossVectors(tmpC, tmpA), tmpC);
       b.quaternion.setFromRotationMatrix(tmpM);
       // Round and a bit taller than wide; deep enough that the brow doesn't clip its top.
-      const hy = eyeR * 1.15 * (1 - 0.85 * shut);
+      const hy = eyeR * 1.15 * (1 - 0.85 * lid);
       b.position.set(eyeA.x, eyeA.y, eyeA.z * side).addScaledVector(tmpC, -eyeR * 0.04).addScaledVector(tmpE, hy - eyeR * 1.15);
       b.scale.set(eyeR, hy, eyeR * 0.6);
       b.visible = !dizzy;
@@ -623,7 +645,9 @@ export class DogVisual {
       const appear = this.daze;
       this.swirl.position.set(this.head.position.x, this.head.position.y + P.hw * 0.85, 0);
       this.swirl.scale.setScalar(P.hw * 0.9 * appear);
-      this.swirl.material.rotation = t * 7;
+      this.swirl.material = down.yuck ? shared.stink : shared.swirl;
+      if (down.yuck) { this.swirl.material.rotation = Math.sin(t * 3) * 0.12; this.swirl.position.y += P.hw * 0.15; }
+      else this.swirl.material.rotation = t * 7;
     }
 
     // Dash effects: air wave and dust when it starts, wind streaks while it lasts.
